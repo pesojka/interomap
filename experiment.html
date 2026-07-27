@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>InteroMap – experiment</title>
+<style>
+  :root { --bg:#7f7f7f; --blank:#7f7f7f; --panel:#ffffff; --ink:#1c1c1c; --accent:#2563eb; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; }
+  body {
+    background: var(--bg);                 /* neutral mid-grey: low-arousal, standard for affective tasks */
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display:flex; align-items:center; justify-content:center;
+    height:100vh; overflow:hidden;
+  }
+  #app { width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
+  .card {
+    background:var(--panel); border-radius:14px; padding:36px 40px; max-width:640px;
+    box-shadow:0 10px 40px rgba(0,0,0,.25); text-align:center; line-height:1.5;
+  }
+  .card h1 { font-size:1.4rem; margin:0 0 .6em; }
+  .card p { margin:.5em 0; }
+  .btn {
+    display:inline-block; margin:.4em; padding:.7em 1.4em; border:0; border-radius:8px;
+    background:var(--accent); color:#fff; font-size:1rem; cursor:pointer;
+  }
+  .btn.secondary { background:#475569; }
+  .btn:disabled { opacity:.45; cursor:default; }
+  input[type=text] { padding:.6em .8em; font-size:1rem; border:1px solid #cbd5e1; border-radius:8px; width:70%; }
+  #blank { width:100%; height:100%; background:var(--blank); }   /* inter-stimulus interval */
+  #picwrap { display:flex; align-items:center; justify-content:center; width:100%; height:100%; }
+  #picwrap img { max-width:80vw; max-height:80vh; object-fit:contain; box-shadow:0 6px 30px rgba(0,0,0,.35); }
+  #maplayout { display:flex; flex-direction:column; width:100%; height:100%; }
+  #mapframe { flex:1 1 auto; width:100%; border:0; background:#fff; }
+  #mapbar {
+    flex:0 0 auto; display:flex; align-items:center; justify-content:space-between;
+    gap:16px; padding:10px 18px; background:#e5e7eb;
+  }
+  #mapbar .hint { font-size:.9rem; color:#374151; }
+  .progress { font-size:.85rem; color:#e5e7eb; position:fixed; top:10px; left:14px; }
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<div id="app"></div>
+
+<script>
+/* =========================================================================
+   CONFIG  —  edit this block only
+   Trial cycle:  picture (pictureMs) -> blank (blankMs) -> map (until "Hotovo")
+                 -> blank (blankMs) -> next trial's picture ...
+   ========================================================================= */
+const CONFIG = {
+  toolPath: "./index.html",   // InteroMap index.html, relative to this file
+  lang: "cs",                 // language key baked into the build (cs = Czech)
+
+  askParticipantId: true,     // show an ID field on the intro screen
+  choosePersonaOnce: true,    // participant picks Žena/Muž once, applied to all trials
+  persona: "female",          // fallback / default persona if choosePersonaOnce = false
+  shuffle: false,             // randomise trial order per participant
+
+  pictureMs: 6000,            // emotional picture duration
+  blankMs:   1000,            // blank screen before AND after the map
+  minMapSeconds: 0,           // map is self-paced (0 = "Hotovo" active immediately)
+
+  // One entry per trial (this is your N). `variable` MUST be unique, ASCII,
+  // start with a letter, no diacritics. `image` is relative to this file.
+  trials: [
+    { image: "stimuli/img1.jpg", variable: "trial1" },
+    { image: "stimuli/img2.jpg", variable: "trial2" },
+    { image: "stimuli/img3.jpg", variable: "trial3" },
+    { image: "stimuli/img4.jpg", variable: "trial4" }
+  ]
+};
+
+/* UI strings (Czech). Edit freely. */
+const UI = {
+  title:        "Mapování tělesných pocitů",
+  intro:        "Uvidíte obrázek a poté tělo, do kterého zakreslíte, kde a jak pocit vnímáte. Toto se několikrát zopakuje.",
+  idLabel:      "Zadejte prosím identifikátor účastníka:",
+  choosePersona:"Vyberte prosím postavu:",
+  female:       "Žena",
+  male:         "Muž",
+  start:        "Začít",
+  continueMap:  "Hotovo",
+  mapHint:      "Zakreslete do těla, kde pocit vnímáte. Až budete hotovi, klikněte na „Hotovo“.",
+  waitHint:     "Ještě chvíli prosím…",
+  finished:     "Děkujeme, úloha je dokončena.",
+  download:     "Stáhnout data znovu"
+};
+/* ========================================================================= */
+
+const app  = document.getElementById("app");
+const prog = document.getElementById("progress");
+
+const state = {
+  participant: "",
+  persona: CONFIG.persona,
+  order: CONFIG.trials.map((_, i) => i),
+  idx: 0,
+  results: {},          // variable -> latest output JSON string from InteroMap
+  meta: {}              // variable -> { image, persona, pictureOnset, mapOnset, mapDurationMs }
+};
+
+if (CONFIG.shuffle) {
+  for (let i = state.order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [state.order[i], state.order[j]] = [state.order[j], state.order[i]];
+  }
+}
+
+/* ---- capture InteroMap output (fires after every stroke; keep the latest) ---- */
+let activeVariable = null;
+window.addEventListener("message", (event) => {
+  const d = event.data;
+  if (!d || d.event !== "interomap_data") return;
+  if (activeVariable && d.variable !== activeVariable) return; // ignore stale frames
+  state.results[d.variable] = d.output; // cumulative JSON string of all strokes
+});
+
+/* ---------------------------- screens ---------------------------- */
+function clear() { app.innerHTML = ""; activeVariable = null; }
+
+function screenIntro() {
+  clear();
+  prog.textContent = "";
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML =
+    `<h1>${UI.title}</h1><p>${UI.intro}</p>` +
+    (CONFIG.askParticipantId
+      ? `<p>${UI.idLabel}</p><p><input type="text" id="pid" autocomplete="off"></p>` : "") +
+    (CONFIG.choosePersonaOnce
+      ? `<p>${UI.choosePersona}</p>
+         <p><button class="btn secondary" data-persona="female">${UI.female}</button>
+            <button class="btn secondary" data-persona="male">${UI.male}</button></p>` : "");
+  const startBtn = document.createElement("button");
+  startBtn.className = "btn"; startBtn.textContent = UI.start;
+  startBtn.disabled = CONFIG.choosePersonaOnce;   // enabled once a persona is chosen
+  card.appendChild(startBtn);
+  app.appendChild(card);
+
+  if (CONFIG.choosePersonaOnce) {
+    card.querySelectorAll("[data-persona]").forEach(b => b.addEventListener("click", () => {
+      state.persona = b.dataset.persona;
+      card.querySelectorAll("[data-persona]").forEach(x =>
+        x.style.outline = (x === b) ? "3px solid var(--accent)" : "none");
+      startBtn.disabled = false;
+    }));
+  }
+  startBtn.addEventListener("click", () => {
+    if (CONFIG.askParticipantId) state.participant = (document.getElementById("pid").value || "").trim();
+    runTrial(0);
+  });
+}
+
+/* blank inter-stimulus interval, then call next() */
+function showBlank(next) {
+  clear();
+  const b = document.createElement("div");
+  b.id = "blank";
+  app.appendChild(b);
+  setTimeout(next, CONFIG.blankMs);
+}
+
+function runTrial(i) {
+  state.idx = i;
+  if (i >= state.order.length) return screenEnd();
+  prog.textContent = `${i + 1} / ${state.order.length}`;
+  const trial = CONFIG.trials[state.order[i]];
+  state.meta[trial.variable] = {
+    image: trial.image,
+    persona: CONFIG.choosePersonaOnce ? state.persona : (trial.persona || CONFIG.persona)
+  };
+  showPicture(trial);                                  // -> blank -> map
+}
+
+function showPicture(trial) {
+  clear();
+  state.meta[trial.variable].pictureOnset = performance.now();
+  const wrap = document.createElement("div");
+  wrap.id = "picwrap";
+  const img = document.createElement("img");
+  img.src = trial.image; img.alt = "";
+  wrap.appendChild(img);
+  app.appendChild(wrap);
+  setTimeout(() => showBlank(() => showMap(trial)), CONFIG.pictureMs);   // 6 s picture, then 1 s blank
+}
+
+function showMap(trial) {
+  clear();
+  const persona = state.meta[trial.variable].persona;
+  activeVariable = trial.variable;
+  state.meta[trial.variable].mapOnset = performance.now();
+
+  const layout = document.createElement("div");
+  layout.id = "maplayout";
+
+  const frame = document.createElement("iframe");
+  frame.id = "mapframe"; frame.title = "InteroMap";
+  // nonce (&_=) guarantees a fresh, empty map each trial even if params repeat
+  frame.src = `${CONFIG.toolPath}?lang=${CONFIG.lang}&persona=${persona}` +
+              `&variable=${encodeURIComponent(trial.variable)}&_=${Date.now()}`;
+
+  const bar = document.createElement("div");
+  bar.id = "mapbar";
+  const hint = document.createElement("span");
+  hint.className = "hint"; hint.textContent = UI.mapHint;
+  const next = document.createElement("button");
+  next.className = "btn"; next.textContent = UI.continueMap;   // "Hotovo"
+  bar.appendChild(hint); bar.appendChild(next);
+
+  layout.appendChild(frame); layout.appendChild(bar);
+  app.appendChild(layout);
+
+  const advance = () => {
+    const m = state.meta[trial.variable];
+    m.mapDurationMs = Math.round(performance.now() - m.mapOnset);
+    showBlank(() => runTrial(state.idx + 1));            // Hotovo -> 1 s blank -> next picture
+  };
+
+  if (CONFIG.minMapSeconds > 0) {
+    next.disabled = true;
+    const t0 = performance.now();
+    const tick = () => {
+      const left = CONFIG.minMapSeconds - (performance.now() - t0) / 1000;
+      if (left > 0) { hint.textContent = `${UI.waitHint} (${Math.ceil(left)} s)`; requestAnimationFrame(tick); }
+      else { hint.textContent = UI.mapHint; next.disabled = false; }
+    };
+    requestAnimationFrame(tick);
+  }
+  next.addEventListener("click", advance);
+}
+
+/* ------------------------------ end / export ------------------------------ */
+function buildDataset() {
+  const trials = state.order.map((ti, pos) => {
+    const t = CONFIG.trials[ti];
+    const m = state.meta[t.variable] || {};
+    let output = null, parsed = null;
+    if (state.results[t.variable] != null) {
+      output = state.results[t.variable];
+      try { parsed = JSON.parse(output); } catch (e) { parsed = null; }
+    }
+    return {
+      position: pos + 1,
+      variable: t.variable,
+      image: t.image,
+      persona: m.persona,
+      mapDurationMs: m.mapDurationMs ?? null,
+      responded: output != null,
+      output: parsed              // full InteroMap structure, or null if nothing drawn
+    };
+  });
+  return {
+    participant: state.participant,
+    timestamp: new Date().toISOString(),
+    lang: CONFIG.lang,
+    trials
+  };
+}
+
+/* long CSV: one row per stroke (+ one row for empty trials) */
+function toCSV(dataset) {
+  const head = ["participant","timestamp","position","variable","image","persona",
+                "map_duration_ms","persona_view","stroke_index","valence","intensity",
+                "brush_color","brush_size","n_points","points_json"];
+  const esc = v => {
+    const s = (v == null) ? "" : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const rows = [head.join(",")];
+  for (const tr of dataset.trials) {
+    const base = [dataset.participant, dataset.timestamp, tr.position, tr.variable,
+                  tr.image, tr.persona, tr.mapDurationMs];
+    if (!tr.output) { rows.push([...base, "", "", "", "", "", "", "0", ""].map(esc).join(",")); continue; }
+    let any = false;
+    for (const view of Object.keys(tr.output)) {
+      const strokes = (tr.output[view] && tr.output[view].strokes) || [];
+      strokes.forEach((s, si) => {
+        any = true;
+        rows.push([...base, view, si, s.valence, s.intensity, s.brushColor, s.brushSize,
+                   (s.points ? s.points.length : 0), JSON.stringify(s.points)].map(esc).join(","));
+      });
+    }
+    if (!any) rows.push([...base, "", "", "", "", "", "", "0", ""].map(esc).join(","));
+  }
+  return rows.join("\n");
+}
+
+function download(name, text, type) {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function saveAll() {
+  const ds = buildDataset();
+  const pid = (ds.participant || "anon").replace(/[^A-Za-z0-9_-]/g, "");
+  const stamp = ds.timestamp.replace(/[:.]/g, "-");
+  const base = `interomap_${pid}_${stamp}`;
+  try { localStorage.setItem(base, JSON.stringify(ds)); } catch (e) {}   // backup
+  download(base + ".json", JSON.stringify(ds, null, 2), "application/json");
+  download(base + ".csv", toCSV(ds), "text/csv");
+  return ds;
+}
+
+function screenEnd() {
+  clear();
+  prog.textContent = "";
+  saveAll();
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `<h1>${UI.title}</h1><p>${UI.finished}</p>`;
+  const b = document.createElement("button");
+  b.className = "btn"; b.textContent = UI.download;
+  b.addEventListener("click", saveAll);
+  card.appendChild(b);
+  app.appendChild(card);
+}
+
+screenIntro();
+</script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width" />
+		<meta http-equiv="content-security-policy" content="">
+		<link href="./_app/immutable/assets/_layout.99606e37.css" rel="stylesheet">
+		<link href="./_app/immutable/assets/_page.55e8d68b.css" rel="stylesheet">
+		<style>
+			/* Hide the credits ("Poděkování") link so it does not distract participants.
+			   The license panel is shown only on click, so hiding the link removes it entirely.
+			   Both classes are unique to this element in the build. */
+			a.text-slate-400 { display: none !important; }
+			.text-right:has(> a.text-slate-400) { display: none !important; }
+		</style>
+		<link rel="modulepreload" href="./_app/immutable/entry/start.a5d71307.js">
+		<link rel="modulepreload" href="./_app/immutable/chunks/index.7da5a90a.js">
+		<link rel="modulepreload" href="./_app/immutable/chunks/singletons.c11abf29.js">
+		<link rel="modulepreload" href="./_app/immutable/entry/app.e7fbc648.js">
+		<link rel="modulepreload" href="./_app/immutable/entry/_layout.svelte.fa305e98.js">
+		<link rel="modulepreload" href="./_app/immutable/entry/_layout.ts.984db11e.js">
+		<link rel="modulepreload" href="./_app/immutable/chunks/_layout.da46b06b.js">
+		<link rel="modulepreload" href="./_app/immutable/entry/_page.svelte.3c0d6b5c.js">
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">
+
+
+<section class="flex flex-col w-full h-full">
+  <div class="relative flex w-full h-3/4">
+
+    <div class="flex-grow relative"><p>Please choose a persona:</p>
+        <button class="py-2 px-4 bg-blue-600 hover:bg-blue-500 rounded shadow text-white">Female</button>
+        <button class="py-2 px-4 bg-blue-600 hover:bg-blue-500 rounded shadow text-white">Male</button></div>
+
+    </div>
+
+  
+
+  <div class="text-right"><a href="" class="text-sm text-slate-400">Credits</a>
+    <div class="hidden"><p class="text-xs"><b><u>Persona drawings</u></b><br>
+        Attribution: Goran tek-en<br>
+        License:
+        <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.en" target="_blank">CC BY-SA 4.0</a></p></div></div></section>
+
+
+			
+			<script>
+				{
+					__sveltekit_h6zx02 = {
+						base: new URL(".", location).pathname.slice(0, -1),
+						env: {}
+					};
+
+					const element = document.currentScript.parentElement;
+
+					const data = [null,null];
+
+					Promise.all([
+						import("./_app/immutable/entry/start.a5d71307.js"),
+						import("./_app/immutable/entry/app.e7fbc648.js")
+					]).then(([kit, app]) => {
+						kit.start(app, element, {
+							node_ids: [0, 2],
+							data,
+							form: null,
+							error: null
+						});
+					});
+				}
+			</script>
+		</div>
+	</body>
+</html>
