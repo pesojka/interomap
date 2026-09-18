@@ -41,6 +41,31 @@
   }
   #mapbar .hint { font-size:.9rem; color:#374151; }
   .progress { font-size:.85rem; color:#e5e7eb; position:fixed; top:10px; left:14px; }
+  .rating-screen { width:100%; height:100%; overflow:auto; }
+  .rating-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(440px,600px);
+    gap:28px; align-items:center; min-height:100%; padding:38px 28px 24px; max-width:1500px; margin:auto; }
+  .rating-picture { margin:0; text-align:center; min-width:0; }
+  .rating-picture img { max-width:100%; max-height:76vh; object-fit:contain; box-shadow:0 6px 30px rgba(0,0,0,.35); }
+  .rating-card { width:100%; padding:24px 28px; }
+  .rating-scale { border:0; border-top:1px solid #d1d5db; padding:12px 0 0; margin:18px 0; text-align:left; min-width:0; }
+  .rating-scale legend { font-weight:600; padding:0 6px 0 0; }
+  .rating-scale p { font-size:.95rem; margin:0 0 8px; }
+  .rating-choices { display:grid; grid-template-columns:repeat(9,minmax(0,1fr)); gap:4px; }
+  .rating-choice { position:relative; cursor:pointer; }
+  .rating-choice input { position:absolute; opacity:0; width:100%; height:100%; margin:0; cursor:pointer; }
+  .rating-choice span { display:flex; align-items:center; justify-content:center; min-height:42px;
+    border:1px solid #94a3b8; border-radius:8px; background:#fff; font-size:1rem; }
+  .rating-choice input:checked + span { background:var(--accent); color:white; border-color:var(--accent); }
+  .rating-choice input:focus-visible + span { outline:3px solid #1c1c1c; outline-offset:2px; }
+  .rating-anchors { display:flex; justify-content:space-between; gap:12px; margin-top:6px; font-size:.875rem; }
+  .rating-anchors span { max-width:46%; }
+  .rating-anchors span:last-child { text-align:right; }
+  .rating-image-status { color:white; }
+  @media (max-width:900px) {
+    .rating-layout { grid-template-columns:minmax(0,1fr); gap:20px; padding:38px 16px 20px; }
+    .rating-picture img { max-height:38vh; }
+    .rating-card { max-width:640px; margin:auto; padding:22px 18px; }
+  }
 </style>
 </head>
 <body>
@@ -80,7 +105,7 @@ const CONFIG = {
 /* UI strings (Czech). Edit freely. */
 const UI = {
   title:        "Mapování tělesných pocitů",
-  intro:        "Uvidíte obrázek a poté tělo, do kterého zakreslíte, kde a jak pocit vnímáte. Toto se několikrát zopakuje.",
+  intro:        "Uvidíte obrázek a poté tělo, do kterého zakreslíte, kde a jak pocit vnímáte. Toto se několikrát zopakuje. Ve druhé části stejné obrázky ohodnotíte na třech škálách.",
   idLabel:      "Zadejte prosím identifikátor účastníka:",
   choosePersona:"Vyberte prosím postavu:",
   female:       "Žena",
@@ -94,8 +119,28 @@ const UI = {
   uploading:    "Odesíláme vaše odpovědi. Prosím, nechte tuto stránku otevřenou.",
   uploaded:     "Vaše odpovědi byly úspěšně uloženy. Tuto stránku můžete zavřít.",
   uploadFailed: "Odpovědi se nepodařilo odeslat. Zkontrolujte připojení a zkuste to znovu. Pokud problém trvá, stáhněte zálohu a kontaktujte výzkumný tým. Stránku zatím nezavírejte.",
-  retry:        "Zkusit odeslat znovu"
+  retry:        "Zkusit odeslat znovu",
+  ratingTitle:  "Hodnocení obrázků",
+  ratingIntro:  "První část je dokončena. Nyní znovu uvidíte stejné obrázky. U každého ohodnoťte příjemnost pocitu, míru aktivace a osobní relevanci na škálách od 1 do 9. Hodnoťte, jak na vás obrázek působí právě teď. Neexistují správné ani špatné odpovědi.",
+  ratingInstructions: "Na každé škále vyberte jednu hodnotu. Obrázek zůstane zobrazený, dokud nekliknete na „Další“. Postupujte vlastním tempem.",
+  ratingHint:   "Vyberte jednu hodnotu na každé ze tří škál.",
+  next:         "Další",
+  imageLoading: "Načítání obrázku…",
+  imageFailed:  "Obrázek se nepodařilo načíst. Zkontrolujte připojení a zkuste načtení znovu.",
+  reloadImage:  "Načíst obrázek znovu"
 };
+// IAPS-aligned coding; text anchors, not the pictorial SAM instrument.
+const RATING_SCALES = [
+  { key: "valence", label: "Příjemnost (valence)",
+    question: "Jak příjemný nebo nepříjemný pocit ve vás obrázek vyvolává?",
+    low: "Velmi nepříjemný", high: "Velmi příjemný", midpoint: "5 = neutrální" },
+  { key: "arousal", label: "Intenzita aktivace (arousal)",
+    question: "Jak moc vás obrázek aktivuje či rozrušuje, bez ohledu na to, zda je pocit příjemný nebo nepříjemný?",
+    low: "Zcela klidný/á, bez aktivace", high: "Velmi aktivovaný/á, rozrušený/á" },
+  { key: "relevance", label: "Osobní relevance",
+    question: "Nakolik je pro vás obrázek osobně relevantní – souvisí s vaším životem, zkušenostmi nebo zájmy?",
+    low: "Vůbec ne", high: "Mimořádně" }
+];
 /* ========================================================================= */
 
 const app  = document.getElementById("app");
@@ -107,7 +152,9 @@ const state = {
   order: CONFIG.trials.map((_, i) => i),
   idx: 0,
   results: {},          // variable -> latest output JSON string from InteroMap
-  meta: {}              // variable -> { image, persona, pictureOnset, mapOnset, mapDurationMs }
+  meta: {},             // variable -> { image, persona, pictureOnset, mapOnset, mapDurationMs }
+  pictureRatings: [],
+  phase: "intro"
 };
 
 if (CONFIG.shuffle) {
@@ -175,7 +222,8 @@ function showBlank(next) {
 
 function runTrial(i) {
   state.idx = i;
-  if (i >= state.order.length) return screenEnd();
+  if (i >= state.order.length) return screenRatingsIntro();
+  state.phase = "mapping";
   prog.textContent = `${i + 1} / ${state.order.length}`;
   const trial = CONFIG.trials[state.order[i]];
   state.meta[trial.variable] = {
@@ -242,6 +290,131 @@ function showMap(trial) {
   next.addEventListener("click", advance);
 }
 
+/* ---------------------------- picture ratings ---------------------------- */
+function screenRatingsIntro() {
+  clear();
+  state.phase = "ratingIntro";
+  prog.textContent = "";
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `<h1>${UI.ratingTitle}</h1><p>${UI.ratingIntro}</p><p>${UI.ratingInstructions}</p>`;
+  const next = document.createElement("button");
+  next.id = "ratings-start";
+  next.className = "btn";
+  next.textContent = UI.next;
+  next.addEventListener("click", () => { next.disabled = true; showRating(0); });
+  card.appendChild(next);
+  app.appendChild(card);
+}
+
+function showRating(i) {
+  if (i >= state.order.length) return screenEnd();
+  clear();
+  state.phase = "ratings";
+  const trial = CONFIG.trials[state.order[i]];
+  prog.textContent = `Hodnocení ${i + 1} / ${state.order.length}`;
+  const screen = document.createElement("div");
+  screen.className = "rating-screen";
+  const layout = document.createElement("div");
+  layout.className = "rating-layout";
+  const picture = document.createElement("figure");
+  picture.className = "rating-picture";
+  const img = document.createElement("img");
+  img.id = "rating-image";
+  img.alt = `Obrázek ${i + 1} k hodnocení`;
+  const imageStatus = document.createElement("p");
+  imageStatus.className = "rating-image-status";
+  imageStatus.setAttribute("role", "status");
+  imageStatus.textContent = UI.imageLoading;
+  const reload = document.createElement("button");
+  reload.id = "rating-reload";
+  reload.className = "btn secondary";
+  reload.textContent = UI.reloadImage;
+  reload.hidden = true;
+  picture.appendChild(img); picture.appendChild(imageStatus); picture.appendChild(reload);
+  const card = document.createElement("div");
+  card.className = "card rating-card";
+  card.innerHTML = `<h1>${UI.ratingTitle}</h1><p>${UI.ratingHint}</p>`;
+  const answers = {};
+  const groups = [];
+  let onset = null, advanced = false;
+  const next = document.createElement("button");
+  next.id = "rating-next";
+  next.className = "btn";
+  next.textContent = UI.next;
+  next.disabled = true;
+  const ready = () => onset !== null && RATING_SCALES.every(s =>
+    Number.isInteger(answers[s.key]) && answers[s.key] >= 1 && answers[s.key] <= 9);
+
+  for (const scale of RATING_SCALES) {
+    const fieldset = document.createElement("fieldset");
+    fieldset.className = "rating-scale";
+    fieldset.disabled = true;
+    groups.push(fieldset);
+    const legend = document.createElement("legend");
+    legend.textContent = scale.label;
+    const question = document.createElement("p");
+    question.id = `rating-${scale.key}-description`;
+    question.textContent = scale.question + (scale.midpoint ? ` ${scale.midpoint}.` : "");
+    fieldset.setAttribute("aria-describedby", question.id);
+    const choices = document.createElement("div");
+    choices.className = "rating-choices";
+    for (let n = 1; n <= 9; n++) {
+      const label = document.createElement("label");
+      label.className = "rating-choice";
+      const input = document.createElement("input");
+      input.type = "radio"; input.name = `rating-${scale.key}`; input.value = String(n);
+      input.id = `rating-${scale.key}-${n}`;
+      input.setAttribute("aria-label", `${n}${n === 1 ? ': ' + scale.low : n === 9 ? ': ' + scale.high : ''}`);
+      input.addEventListener("change", () => {
+        if (onset === null || advanced || !input.checked) return;
+        answers[scale.key] = n;
+        next.disabled = !ready();
+      });
+      const number = document.createElement("span");
+      number.textContent = String(n);
+      label.appendChild(input); label.appendChild(number); choices.appendChild(label);
+    }
+    const anchors = document.createElement("div");
+    anchors.className = "rating-anchors";
+    for (const text of [`1 — ${scale.low}`, `9 — ${scale.high}`]) {
+      const anchor = document.createElement("span"); anchor.textContent = text; anchors.appendChild(anchor);
+    }
+    fieldset.appendChild(legend); fieldset.appendChild(question);
+    fieldset.appendChild(choices); fieldset.appendChild(anchors); card.appendChild(fieldset);
+  }
+  next.addEventListener("click", () => {
+    if (advanced || !ready()) return;
+    advanced = true; next.disabled = true;
+    state.pictureRatings.push({ position: i + 1, mappingPosition: i + 1,
+      variable: trial.variable, image: trial.image,
+      valence: answers.valence, arousal: answers.arousal, relevance: answers.relevance,
+      ratingDurationMs: Math.round(performance.now() - onset) });
+    showRating(i + 1);
+  });
+  img.addEventListener("load", () => {
+    if (advanced || onset !== null) return;
+    onset = performance.now();
+    imageStatus.hidden = true; reload.hidden = true;
+    groups.forEach(group => { group.disabled = false; });
+    next.disabled = !ready();
+  });
+  img.addEventListener("error", () => {
+    onset = null;
+    groups.forEach(group => { group.disabled = true; });
+    next.disabled = true; imageStatus.hidden = false;
+    imageStatus.textContent = UI.imageFailed; reload.hidden = false;
+  });
+  reload.addEventListener("click", () => {
+    reload.hidden = true; imageStatus.textContent = UI.imageLoading;
+    const url = new URL(trial.image, location.href);
+    url.searchParams.set("retry", Date.now()); img.src = url.href;
+  });
+  card.appendChild(next);
+  layout.appendChild(picture); layout.appendChild(card); screen.appendChild(layout); app.appendChild(screen);
+  img.src = trial.image;
+}
+
 /* ------------------------------ end / export ------------------------------ */
 function buildDataset() {
   const trials = state.order.map((ti, pos) => {
@@ -263,17 +436,23 @@ function buildDataset() {
     };
   });
   return {
+    schemaVersion: 2,
     participant: state.participant,
     timestamp: new Date().toISOString(),
     lang: CONFIG.lang,
-    trials
+    trials,
+    pictureRatings: state.pictureRatings,
+    ratingScales: { responseFormat: "numbered-radio-text-anchors", min: 1, max: 9,
+      intensityConstruct: "arousal", relevanceConstruct: "personal relevance",
+      presentationOrder: "same as mapping", scales: RATING_SCALES }
   };
 }
 
 /* long CSV: one row per stroke (+ one row for empty trials) */
 function toCSV(dataset) {
   const head = ["participant","timestamp","position","variable","image","persona",
-                "map_duration_ms","persona_view","stroke_index","valence","intensity",
+                "map_duration_ms","picture_valence_1_9","picture_arousal_1_9","picture_relevance_1_9",
+                "rating_duration_ms","rating_position","persona_view","stroke_index","valence","intensity",
                 "brush_color","brush_size","n_points","points_json"];
   const esc = v => {
     const s = (v == null) ? "" : String(v);
@@ -281,8 +460,10 @@ function toCSV(dataset) {
   };
   const rows = [head.join(",")];
   for (const tr of dataset.trials) {
+    const rating = (dataset.pictureRatings || []).find(r => r.variable === tr.variable) || {};
     const base = [dataset.participant, dataset.timestamp, tr.position, tr.variable,
-                  tr.image, tr.persona, tr.mapDurationMs];
+                  tr.image, tr.persona, tr.mapDurationMs, rating.valence, rating.arousal,
+                  rating.relevance, rating.ratingDurationMs, rating.position];
     if (!tr.output) { rows.push([...base, "", "", "", "", "", "", "0", ""].map(esc).join(",")); continue; }
     let any = false;
     for (const view of Object.keys(tr.output)) {
@@ -323,6 +504,7 @@ function saveAll() {
 
 function screenEnd() {
   clear();
+  state.phase = "complete";
   prog.textContent = "";
   if (!completedSubmission) {
     completedSubmission = { submissionId: crypto.randomUUID(), dataset: buildDataset() };
@@ -399,7 +581,9 @@ async function uploadResults() {
 }
 
 window.addEventListener("beforeunload", event => {
-  if (completedSubmission && !uploadSaved) { event.preventDefault(); event.returnValue = ""; }
+  if ((completedSubmission && !uploadSaved) || state.phase === "ratingIntro" || state.phase === "ratings") {
+    event.preventDefault(); event.returnValue = "";
+  }
 });
 window.addEventListener("online", () => { if (completedSubmission && !uploadSaved) void uploadResults(); });
 
