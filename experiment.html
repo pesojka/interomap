@@ -7,6 +7,7 @@
 <style>
   :root { --bg:#7f7f7f; --blank:#7f7f7f; --panel:#ffffff; --ink:#1c1c1c; --accent:#2563eb; }
   * { box-sizing: border-box; }
+  [hidden] { display:none !important; }
   html, body { margin:0; height:100%; }
   body {
     background: var(--bg);                 /* neutral mid-grey: low-arousal, standard for affective tasks */
@@ -55,6 +56,7 @@
 const CONFIG = {
   toolPath: "./index.html",   // InteroMap index.html, relative to this file
   lang: "cs",                 // language key baked into the build (cs = Czech)
+  uploadUrl: "https://interomap-sojka-ns.dyn.cloud.e-infra.cz/submissions",
 
   askParticipantId: true,     // show an ID field on the intro screen
   choosePersonaOnce: true,    // participant picks Žena/Muž once, applied to all trials
@@ -88,7 +90,11 @@ const UI = {
   mapHint:      "Zakreslete do těla, kde pocit vnímáte. Až budete hotovi, klikněte na „Hotovo“.",
   waitHint:     "Ještě chvíli prosím…",
   finished:     "Děkujeme, úloha je dokončena.",
-  download:     "Stáhnout data znovu"
+  download:     "Stáhnout zálohu dat",
+  uploading:    "Odesíláme vaše odpovědi. Prosím, nechte tuto stránku otevřenou.",
+  uploaded:     "Vaše odpovědi byly úspěšně uloženy. Tuto stránku můžete zavřít.",
+  uploadFailed: "Odpovědi se nepodařilo odeslat. Zkontrolujte připojení a zkuste to znovu. Pokud problém trvá, stáhněte zálohu a kontaktujte výzkumný tým. Stránku zatím nezavírejte.",
+  retry:        "Zkusit odeslat znovu"
 };
 /* ========================================================================= */
 
@@ -115,8 +121,10 @@ if (CONFIG.shuffle) {
 let activeVariable = null;
 window.addEventListener("message", (event) => {
   const d = event.data;
-  if (!d || d.event !== "interomap_data") return;
-  if (activeVariable && d.variable !== activeVariable) return; // ignore stale frames
+  const frame = document.getElementById("mapframe");
+  if (!frame || event.source !== frame.contentWindow ||
+      event.origin !== new URL(CONFIG.toolPath, location.href).origin) return;
+  if (!d || d.event !== "interomap_data" || !activeVariable || d.variable !== activeVariable) return;
   state.results[d.variable] = d.output; // cumulative JSON string of all strokes
 });
 
@@ -131,7 +139,7 @@ function screenIntro() {
   card.innerHTML =
     `<h1>${UI.title}</h1><p>${UI.intro}</p>` +
     (CONFIG.askParticipantId
-      ? `<p>${UI.idLabel}</p><p><input type="text" id="pid" autocomplete="off"></p>` : "") +
+      ? `<p>${UI.idLabel}</p><p><input type="text" id="pid" maxlength="200" autocomplete="off"></p>` : "") +
     (CONFIG.choosePersonaOnce
       ? `<p>${UI.choosePersona}</p>
          <p><button class="btn secondary" data-persona="female">${UI.female}</button>
@@ -298,12 +306,16 @@ function download(name, text, type) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+const PENDING_KEY = "interomap.pending-submission.v1";
+let completedSubmission = null;
+let uploadInProgress = false;
+let uploadSaved = false;
+
 function saveAll() {
-  const ds = buildDataset();
+  const ds = completedSubmission.dataset;
   const pid = (ds.participant || "anon").replace(/[^A-Za-z0-9_-]/g, "");
   const stamp = ds.timestamp.replace(/[:.]/g, "-");
   const base = `interomap_${pid}_${stamp}`;
-  try { localStorage.setItem(base, JSON.stringify(ds)); } catch (e) {}   // backup
   download(base + ".json", JSON.stringify(ds, null, 2), "application/json");
   download(base + ".csv", toCSV(ds), "text/csv");
   return ds;
@@ -312,18 +324,91 @@ function saveAll() {
 function screenEnd() {
   clear();
   prog.textContent = "";
-  saveAll();
+  if (!completedSubmission) {
+    completedSubmission = { submissionId: crypto.randomUUID(), dataset: buildDataset() };
+  }
+  // Survive a refresh in this tab; never retain successfully uploaded data here.
+  try { sessionStorage.setItem(PENDING_KEY, JSON.stringify(completedSubmission)); } catch (e) {}
   const card = document.createElement("div");
   card.className = "card";
   card.innerHTML = `<h1>${UI.title}</h1><p>${UI.finished}</p>`;
+  const status = document.createElement("p");
+  status.id = "upload-status";
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  card.appendChild(status);
+  const retry = document.createElement("button");
+  retry.id = "upload-retry";
+  retry.className = "btn";
+  retry.textContent = UI.retry;
+  retry.hidden = true;
+  retry.addEventListener("click", uploadResults);
+  card.appendChild(retry);
   const b = document.createElement("button");
-  b.className = "btn"; b.textContent = UI.download;
+  b.id = "upload-backup";
+  b.className = "btn secondary"; b.textContent = UI.download;
+  b.hidden = true;
   b.addEventListener("click", saveAll);
   card.appendChild(b);
   app.appendChild(card);
+  void uploadResults();
 }
 
-screenIntro();
+async function uploadResults() {
+  if (uploadInProgress || uploadSaved || !completedSubmission) return;
+  uploadInProgress = true;
+  const status = document.getElementById("upload-status");
+  const retry = document.getElementById("upload-retry");
+  const backup = document.getElementById("upload-backup");
+  status.textContent = UI.uploading;
+  retry.hidden = true;
+  backup.hidden = true;
+  const body = JSON.stringify(completedSubmission);
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20000);
+      let permanentFailure = false;
+      try {
+        const response = await fetch(CONFIG.uploadUrl, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          credentials: "omit", body, signal: controller.signal
+        });
+        permanentFailure = response.status >= 400 && response.status < 500 &&
+          response.status !== 408 && response.status !== 429;
+        if (!response.ok) throw new Error("Upload rejected");
+        const receipt = await response.json();
+        if (receipt.saved !== true || receipt.submissionId !== completedSubmission.submissionId) {
+          permanentFailure = true;
+          throw new Error("Invalid upload receipt");
+        }
+        uploadSaved = true;
+        try { sessionStorage.removeItem(PENDING_KEY); } catch (e) {}
+        status.textContent = UI.uploaded;
+        return;
+      } catch (error) {
+        if (permanentFailure || attempt === 2) throw error;
+      } finally { clearTimeout(timeout); }
+      await new Promise(resolve => setTimeout(resolve, attempt === 0 ? 2000 : 5000));
+    }
+  } catch (error) {
+    status.textContent = UI.uploadFailed;
+    retry.hidden = false;
+    backup.hidden = false;
+  } finally { uploadInProgress = false; }
+}
+
+window.addEventListener("beforeunload", event => {
+  if (completedSubmission && !uploadSaved) { event.preventDefault(); event.returnValue = ""; }
+});
+window.addEventListener("online", () => { if (completedSubmission && !uploadSaved) void uploadResults(); });
+
+try {
+  const pending = JSON.parse(sessionStorage.getItem(PENDING_KEY));
+  if (pending && typeof pending.submissionId === "string" && pending.dataset &&
+      Array.isArray(pending.dataset.trials)) completedSubmission = pending;
+} catch (e) {}
+if (completedSubmission) screenEnd(); else screenIntro();
 </script>
 </body>
 </html>
