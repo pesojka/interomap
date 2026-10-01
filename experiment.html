@@ -40,13 +40,21 @@
     gap:16px; padding:10px 18px; background:#e5e7eb;
   }
   #mapbar .hint { font-size:.9rem; color:#374151; }
-  .progress { font-size:.85rem; color:#e5e7eb; position:fixed; top:10px; left:14px; }
+  .progress { font-size:.85rem; color:#fff; background:rgba(0,0,0,.65); padding:3px 7px;
+    border-radius:4px; position:fixed; top:10px; left:14px; }
+  .progress:empty { display:none; }
   .rating-screen { width:100%; height:100%; overflow:auto; }
-  .rating-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(440px,600px);
-    gap:28px; align-items:center; min-height:100%; padding:38px 28px 24px; max-width:1500px; margin:auto; }
-  .rating-picture { margin:0; text-align:center; min-width:0; }
-  .rating-picture img { max-width:100%; max-height:76vh; object-fit:contain; box-shadow:0 6px 30px rgba(0,0,0,.35); }
-  .rating-card { width:100%; padding:24px 28px; }
+  .rating-layout { display:flex; align-items:center; justify-content:center;
+    min-height:100%; padding:38px 28px 24px; }
+  .rating-picture { margin:0; text-align:center; }
+  .rating-picture img { max-width:80vw; max-height:80vh; object-fit:contain; box-shadow:0 6px 30px rgba(0,0,0,.35); }
+  .rating-card { width:100%; max-width:820px; padding:24px 28px; }
+  /* Display each row of the supplied 850 × 415 image without altering the asset. */
+  .sam-illustration { position:relative; overflow:hidden; aspect-ratio:700 / 135; }
+  .sam-illustration img { position:absolute; width:121.428571%; max-width:none; height:auto;
+    left:-18.571429%; top:-29.629630%; }
+  .sam-illustration.arousal img { top:-151.851852%; }
+  .rating-scale.sam .rating-choices { margin-inline:2.428571%; }
   .rating-scale { border:0; border-top:1px solid #d1d5db; padding:12px 0 0; margin:18px 0; text-align:left; min-width:0; }
   .rating-scale legend { font-weight:600; padding:0 6px 0 0; }
   .rating-scale p { font-size:.95rem; margin:0 0 8px; }
@@ -62,9 +70,8 @@
   .rating-anchors span:last-child { text-align:right; }
   .rating-image-status { color:white; }
   @media (max-width:900px) {
-    .rating-layout { grid-template-columns:minmax(0,1fr); gap:20px; padding:38px 16px 20px; }
-    .rating-picture img { max-height:38vh; }
-    .rating-card { max-width:640px; margin:auto; padding:22px 18px; }
+    .rating-layout { padding:38px 16px 20px; }
+    .rating-card { margin:auto; padding:22px 18px; }
   }
 </style>
 </head>
@@ -75,6 +82,7 @@
 <script>
 /* =========================================================================
    CONFIG  —  edit this block only
+   First: current-state baseline map (until "Hotovo") -> blank (blankMs).
    Trial cycle:  picture (pictureMs) -> blank (blankMs) -> map (until "Hotovo")
                  -> blank (blankMs) -> next trial's picture ...
    ========================================================================= */
@@ -89,6 +97,8 @@ const CONFIG = {
   shuffle: false,             // randomise trial order per participant
 
   pictureMs: 6000,            // emotional picture duration
+  ratingPictureMs: 6000,      // picture-only exposure in the rating section
+  ratingPreparationMs: 5000,  // preparation between rated pictures
   blankMs:   1000,            // blank screen before AND after the map
   minMapSeconds: 0,           // map is self-paced (0 = "Hotovo" active immediately)
 
@@ -105,7 +115,7 @@ const CONFIG = {
 /* UI strings (Czech). Edit freely. */
 const UI = {
   title:        "Mapování tělesných pocitů",
-  intro:        "Uvidíte obrázek a poté tělo, do kterého zakreslíte, kde a jak pocit vnímáte. Toto se několikrát zopakuje. Ve druhé části stejné obrázky ohodnotíte na třech škálách.",
+  intro:        "Nejprve do těla zakreslíte pocity, které si uvědomujete právě teď. Poté uvidíte obrázek a do těla zakreslíte, kde a jak pocit vnímáte. Toto se několikrát zopakuje. Ve druhé části stejné obrázky ohodnotíte na třech škálách.",
   idLabel:      "Zadejte prosím identifikátor účastníka:",
   choosePersona:"Vyberte prosím postavu:",
   female:       "Žena",
@@ -113,6 +123,11 @@ const UI = {
   start:        "Začít",
   continueMap:  "Hotovo",
   mapHint:      "Zakreslete do těla, kde pocit vnímáte. Až budete hotovi, klikněte na „Hotovo“.",
+  baselineTitle: "Vaše aktuální tělesné pocity",
+  baselineIntro: "Než začneme s obrázky, zaměřte pozornost na své tělo. Jaké tělesné pocity si uvědomujete právě teď? Zakreslete je do postavy na místech, kde je vnímáte. U každého pocitu zvolte jeho příjemnost (1 = velmi nepříjemný, 5 = neutrální, 9 = velmi příjemný) a intenzitu (1 = velmi slabá, 9 = velmi silná).",
+  baselineInstructions: "Zachyťte svůj současný stav. Není potřeba žádné pocity vyvolávat ani měnit. Pokud si žádné tělesné pocity neuvědomujete, můžete mapu ponechat prázdnou. Až budete hotovi, klikněte na „Hotovo“.",
+  baselineStart: "Začít mapování aktuálních pocitů",
+  baselineHint: "Zakreslete tělesné pocity, které si uvědomujete právě teď. Pokud žádné nevnímáte, ponechte mapu prázdnou. Poté klikněte na „Hotovo“.",
   waitHint:     "Ještě chvíli prosím…",
   finished:     "Děkujeme, úloha je dokončena.",
   download:     "Stáhnout zálohu dat",
@@ -122,19 +137,25 @@ const UI = {
   retry:        "Zkusit odeslat znovu",
   ratingTitle:  "Hodnocení obrázků",
   ratingIntro:  "První část je dokončena. Nyní znovu uvidíte stejné obrázky. U každého ohodnoťte příjemnost pocitu, míru aktivace a osobní relevanci na škálách od 1 do 9. Hodnoťte, jak na vás obrázek působí právě teď. Neexistují správné ani špatné odpovědi.",
-  ratingInstructions: "Na každé škále vyberte jednu hodnotu. Obrázek zůstane zobrazený, dokud nekliknete na „Další“. Postupujte vlastním tempem.",
+  ratingInstructions: "Každý obrázek uvidíte po dobu 6 sekund. Poté zmizí a zobrazí se škály hodnocení. Příjemnost a míru aktivace ohodnoťte pomocí postaviček, osobní relevanci na číselné škále. Na každé škále vyberte jednu hodnotu a klikněte na „Další“. Hodnocení není časově omezeno. Před dalším obrázkem budete mít 5 sekund na přípravu.",
   ratingHint:   "Vyberte jednu hodnotu na každé ze tří škál.",
+  ratingPreparation: "Připravte se na hodnocení dalšího obrázku.",
   next:         "Další",
   imageLoading: "Načítání obrázku…",
   imageFailed:  "Obrázek se nepodařilo načíst. Zkontrolujte připojení a zkuste načtení znovu.",
   reloadImage:  "Načíst obrázek znovu"
 };
-// IAPS-aligned coding; text anchors, not the pictorial SAM instrument.
+// SAM rows follow the supplied image: 9 on the left, 1 on the right.
+const MANIKINS_IMAGE = "images/manikins.png";
+const BASELINE = { variable: "baseline", image: "" };
+if (CONFIG.trials.some(trial => trial.variable === BASELINE.variable)) {
+  throw new Error('The trial variable "baseline" is reserved for the current-state map.');
+}
 const RATING_SCALES = [
-  { key: "valence", label: "Příjemnost (valence)",
+  { key: "valence", label: "Příjemnost (valence)", manikin: true,
     question: "Jak příjemný nebo nepříjemný pocit ve vás obrázek vyvolává?",
     low: "Velmi nepříjemný", high: "Velmi příjemný", midpoint: "5 = neutrální" },
-  { key: "arousal", label: "Intenzita aktivace (arousal)",
+  { key: "arousal", label: "Intenzita aktivace (arousal)", manikin: true,
     question: "Jak moc vás obrázek aktivuje či rozrušuje, bez ohledu na to, zda je pocit příjemný nebo nepříjemný?",
     low: "Zcela klidný/á, bez aktivace", high: "Velmi aktivovaný/á, rozrušený/á" },
   { key: "relevance", label: "Osobní relevance",
@@ -207,8 +228,31 @@ function screenIntro() {
   }
   startBtn.addEventListener("click", () => {
     if (CONFIG.askParticipantId) state.participant = (document.getElementById("pid").value || "").trim();
-    runTrial(0);
+    screenBaselineIntro();
   });
+}
+
+function screenBaselineIntro() {
+  clear();
+  state.phase = "baselineIntro";
+  prog.textContent = "";
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `<h1>${UI.baselineTitle}</h1><p>${UI.baselineIntro}</p><p>${UI.baselineInstructions}</p>`;
+  const next = document.createElement("button");
+  next.id = "baseline-start";
+  next.className = "btn";
+  next.textContent = UI.baselineStart;
+  next.addEventListener("click", () => {
+    if (next.disabled) return;
+    next.disabled = true;
+    state.phase = "baseline";
+    prog.textContent = UI.baselineTitle;
+    state.meta[BASELINE.variable] = { image: "", persona: state.persona };
+    showMap(BASELINE, true);
+  });
+  card.appendChild(next);
+  app.appendChild(card);
 }
 
 /* blank inter-stimulus interval, then call next() */
@@ -245,7 +289,7 @@ function showPicture(trial) {
   setTimeout(() => showBlank(() => showMap(trial)), CONFIG.pictureMs);   // 6 s picture, then 1 s blank
 }
 
-function showMap(trial) {
+function showMap(trial, isBaseline = false) {
   clear();
   const persona = state.meta[trial.variable].persona;
   activeVariable = trial.variable;
@@ -263,18 +307,22 @@ function showMap(trial) {
   const bar = document.createElement("div");
   bar.id = "mapbar";
   const hint = document.createElement("span");
-  hint.className = "hint"; hint.textContent = UI.mapHint;
+  hint.className = "hint"; hint.textContent = isBaseline ? UI.baselineHint : UI.mapHint;
   const next = document.createElement("button");
+  next.id = "map-next";
   next.className = "btn"; next.textContent = UI.continueMap;   // "Hotovo"
   bar.appendChild(hint); bar.appendChild(next);
 
   layout.appendChild(frame); layout.appendChild(bar);
   app.appendChild(layout);
 
+  let advanced = false;
   const advance = () => {
+    if (advanced || next.disabled) return;
+    advanced = true; next.disabled = true;
     const m = state.meta[trial.variable];
     m.mapDurationMs = Math.round(performance.now() - m.mapOnset);
-    showBlank(() => runTrial(state.idx + 1));            // Hotovo -> 1 s blank -> next picture
+    showBlank(() => runTrial(isBaseline ? 0 : state.idx + 1));
   };
 
   if (CONFIG.minMapSeconds > 0) {
@@ -283,7 +331,7 @@ function showMap(trial) {
     const tick = () => {
       const left = CONFIG.minMapSeconds - (performance.now() - t0) / 1000;
       if (left > 0) { hint.textContent = `${UI.waitHint} (${Math.ceil(left)} s)`; requestAnimationFrame(tick); }
-      else { hint.textContent = UI.mapHint; next.disabled = false; }
+      else { hint.textContent = isBaseline ? UI.baselineHint : UI.mapHint; next.disabled = false; }
     };
     requestAnimationFrame(tick);
   }
@@ -302,26 +350,40 @@ function screenRatingsIntro() {
   next.id = "ratings-start";
   next.className = "btn";
   next.textContent = UI.next;
-  next.addEventListener("click", () => { next.disabled = true; showRating(0); });
+  next.addEventListener("click", () => { next.disabled = true; showRatingPicture(0); });
   card.appendChild(next);
   app.appendChild(card);
 }
 
-function showRating(i) {
+function showRatingPreparation(i) {
+  clear();
+  state.phase = "ratingPreparation";
+  prog.textContent = "";
+  const card = document.createElement("div");
+  card.id = "rating-preparation";
+  card.className = "card";
+  card.textContent = UI.ratingPreparation;
+  app.appendChild(card);
+  setTimeout(() => showRatingPicture(i), CONFIG.ratingPreparationMs);
+}
+
+function showRatingPicture(i) {
   if (i >= state.order.length) return screenEnd();
   clear();
-  state.phase = "ratings";
+  state.phase = "ratingPicture";
   const trial = CONFIG.trials[state.order[i]];
   prog.textContent = `Hodnocení ${i + 1} / ${state.order.length}`;
-  const screen = document.createElement("div");
-  screen.className = "rating-screen";
-  const layout = document.createElement("div");
-  layout.className = "rating-layout";
   const picture = document.createElement("figure");
   picture.className = "rating-picture";
   const img = document.createElement("img");
   img.id = "rating-image";
   img.alt = `Obrázek ${i + 1} k hodnocení`;
+  img.hidden = true;
+  // Load the rating illustrations before beginning the timed exposure.
+  const manikins = document.createElement("img");
+  manikins.id = "rating-manikins-preload";
+  manikins.hidden = true;
+  manikins.alt = "";
   const imageStatus = document.createElement("p");
   imageStatus.className = "rating-image-status";
   imageStatus.setAttribute("role", "status");
@@ -332,11 +394,51 @@ function showRating(i) {
   reload.textContent = UI.reloadImage;
   reload.hidden = true;
   picture.appendChild(img); picture.appendChild(imageStatus); picture.appendChild(reload);
+  picture.appendChild(manikins);
+  app.appendChild(picture);
+  let pictureLoaded = false, manikinsLoaded = false, started = false;
+  const startExposure = () => {
+    if (started || !pictureLoaded || !manikinsLoaded) return;
+    started = true;
+    imageStatus.hidden = true; reload.hidden = true;
+    img.hidden = false;
+    requestAnimationFrame(() => {
+      const pictureOnset = performance.now();
+      setTimeout(() => showRating(i, Math.round(performance.now() - pictureOnset)), CONFIG.ratingPictureMs);
+    });
+  };
+  const imageError = () => {
+    imageStatus.hidden = false; imageStatus.textContent = UI.imageFailed;
+    reload.hidden = false;
+  };
+  img.addEventListener("load", () => { pictureLoaded = true; startExposure(); });
+  manikins.addEventListener("load", () => { manikinsLoaded = true; startExposure(); });
+  img.addEventListener("error", imageError);
+  manikins.addEventListener("error", imageError);
+  reload.addEventListener("click", () => {
+    reload.hidden = true; imageStatus.textContent = UI.imageLoading;
+    for (const [image, path, loaded] of [[img, trial.image, pictureLoaded], [manikins, MANIKINS_IMAGE, manikinsLoaded]]) {
+      if (loaded) continue;
+      const url = new URL(path, location.href);
+      url.searchParams.set("retry", Date.now()); image.src = url.href;
+    }
+  });
+  img.src = trial.image;
+  manikins.src = MANIKINS_IMAGE;
+}
+
+function showRating(i, pictureDurationMs) {
+  clear();
+  state.phase = "ratings";
+  const trial = CONFIG.trials[state.order[i]];
+  const screen = document.createElement("div");
+  screen.className = "rating-screen";
+  const layout = document.createElement("div");
+  layout.className = "rating-layout";
   const card = document.createElement("div");
   card.className = "card rating-card";
   card.innerHTML = `<h1>${UI.ratingTitle}</h1><p>${UI.ratingHint}</p>`;
   const answers = {};
-  const groups = [];
   let onset = null, advanced = false;
   const next = document.createElement("button");
   next.id = "rating-next";
@@ -348,9 +450,7 @@ function showRating(i) {
 
   for (const scale of RATING_SCALES) {
     const fieldset = document.createElement("fieldset");
-    fieldset.className = "rating-scale";
-    fieldset.disabled = true;
-    groups.push(fieldset);
+    fieldset.className = `rating-scale${scale.manikin ? " sam" : ""}`;
     const legend = document.createElement("legend");
     legend.textContent = scale.label;
     const question = document.createElement("p");
@@ -359,7 +459,8 @@ function showRating(i) {
     fieldset.setAttribute("aria-describedby", question.id);
     const choices = document.createElement("div");
     choices.className = "rating-choices";
-    for (let n = 1; n <= 9; n++) {
+    const values = Array.from({ length: 9 }, (_, index) => scale.manikin ? 9 - index : index + 1);
+    for (const n of values) {
       const label = document.createElement("label");
       label.className = "rating-choice";
       const input = document.createElement("input");
@@ -377,10 +478,21 @@ function showRating(i) {
     }
     const anchors = document.createElement("div");
     anchors.className = "rating-anchors";
-    for (const text of [`1 — ${scale.low}`, `9 — ${scale.high}`]) {
+    const anchorTexts = [`1 — ${scale.low}`, `9 — ${scale.high}`];
+    if (scale.manikin) anchorTexts.reverse();
+    for (const text of anchorTexts) {
       const anchor = document.createElement("span"); anchor.textContent = text; anchors.appendChild(anchor);
     }
     fieldset.appendChild(legend); fieldset.appendChild(question);
+    if (scale.manikin) {
+      const illustration = document.createElement("div");
+      illustration.className = `sam-illustration ${scale.key}`;
+      const image = document.createElement("img");
+      image.src = MANIKINS_IMAGE;
+      image.alt = `${scale.label}: 9 — ${scale.high}; 1 — ${scale.low}.`;
+      illustration.appendChild(image);
+      fieldset.appendChild(illustration);
+    }
     fieldset.appendChild(choices); fieldset.appendChild(anchors); card.appendChild(fieldset);
   }
   next.addEventListener("click", () => {
@@ -389,36 +501,19 @@ function showRating(i) {
     state.pictureRatings.push({ position: i + 1, mappingPosition: i + 1,
       variable: trial.variable, image: trial.image,
       valence: answers.valence, arousal: answers.arousal, relevance: answers.relevance,
+      pictureDurationMs,
       ratingDurationMs: Math.round(performance.now() - onset) });
-    showRating(i + 1);
-  });
-  img.addEventListener("load", () => {
-    if (advanced || onset !== null) return;
-    onset = performance.now();
-    imageStatus.hidden = true; reload.hidden = true;
-    groups.forEach(group => { group.disabled = false; });
-    next.disabled = !ready();
-  });
-  img.addEventListener("error", () => {
-    onset = null;
-    groups.forEach(group => { group.disabled = true; });
-    next.disabled = true; imageStatus.hidden = false;
-    imageStatus.textContent = UI.imageFailed; reload.hidden = false;
-  });
-  reload.addEventListener("click", () => {
-    reload.hidden = true; imageStatus.textContent = UI.imageLoading;
-    const url = new URL(trial.image, location.href);
-    url.searchParams.set("retry", Date.now()); img.src = url.href;
+    if (i + 1 >= state.order.length) screenEnd();
+    else showRatingPreparation(i + 1);
   });
   card.appendChild(next);
-  layout.appendChild(picture); layout.appendChild(card); screen.appendChild(layout); app.appendChild(screen);
-  img.src = trial.image;
+  layout.appendChild(card); screen.appendChild(layout); app.appendChild(screen);
+  onset = performance.now();
 }
 
 /* ------------------------------ end / export ------------------------------ */
 function buildDataset() {
-  const trials = state.order.map((ti, pos) => {
-    const t = CONFIG.trials[ti];
+  const mapRecord = (t, position) => {
     const m = state.meta[t.variable] || {};
     let output = null, parsed = null;
     if (state.results[t.variable] != null) {
@@ -426,7 +521,7 @@ function buildDataset() {
       try { parsed = JSON.parse(output); } catch (e) { parsed = null; }
     }
     return {
-      position: pos + 1,
+      position,
       variable: t.variable,
       image: t.image,
       persona: m.persona,
@@ -434,15 +529,24 @@ function buildDataset() {
       responded: output != null,
       output: parsed              // full InteroMap structure, or null if nothing drawn
     };
-  });
+  };
+  const trials = state.order.map((ti, pos) => mapRecord(CONFIG.trials[ti], pos + 1));
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     participant: state.participant,
     timestamp: new Date().toISOString(),
     lang: CONFIG.lang,
+    baseline: state.meta[BASELINE.variable] ? { ...mapRecord(BASELINE, 0), type: "baseline" } : null,
+    bodyMapScales: {
+      min: 1, max: 9, step: 1, storedValuesMatchLabels: true,
+      valence: { low: "Velmi nepříjemný", midpoint: "Neutrální", midpointValue: 5, high: "Velmi příjemný" },
+      intensity: { low: "Velmi slabá", high: "Velmi silná", construct: "bodily sensation intensity" }
+    },
     trials,
     pictureRatings: state.pictureRatings,
-    ratingScales: { responseFormat: "numbered-radio-text-anchors", min: 1, max: 9,
+    ratingScales: { responseFormat: "sam-valence-arousal-numeric-relevance", min: 1, max: 9,
+      manikinsImage: MANIKINS_IMAGE, manikinDisplayOrder: "9-to-1", relevanceDisplayOrder: "1-to-9",
+      pictureMs: CONFIG.ratingPictureMs, preparationMs: CONFIG.ratingPreparationMs,
       intensityConstruct: "arousal", relevanceConstruct: "personal relevance",
       presentationOrder: "same as mapping", scales: RATING_SCALES }
   };
@@ -452,18 +556,20 @@ function buildDataset() {
 function toCSV(dataset) {
   const head = ["participant","timestamp","position","variable","image","persona",
                 "map_duration_ms","picture_valence_1_9","picture_arousal_1_9","picture_relevance_1_9",
-                "rating_duration_ms","rating_position","persona_view","stroke_index","valence","intensity",
+                "rating_duration_ms","rating_position","map_type","persona_view","stroke_index","valence","intensity",
                 "brush_color","brush_size","n_points","points_json"];
   const esc = v => {
     const s = (v == null) ? "" : String(v);
     return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
   const rows = [head.join(",")];
-  for (const tr of dataset.trials) {
+  const maps = dataset.baseline ? [dataset.baseline, ...dataset.trials] : dataset.trials;
+  for (const tr of maps) {
     const rating = (dataset.pictureRatings || []).find(r => r.variable === tr.variable) || {};
     const base = [dataset.participant, dataset.timestamp, tr.position, tr.variable,
                   tr.image, tr.persona, tr.mapDurationMs, rating.valence, rating.arousal,
-                  rating.relevance, rating.ratingDurationMs, rating.position];
+                  rating.relevance, rating.ratingDurationMs, rating.position,
+                  tr === dataset.baseline ? "baseline" : "picture"];
     if (!tr.output) { rows.push([...base, "", "", "", "", "", "", "0", ""].map(esc).join(",")); continue; }
     let any = false;
     for (const view of Object.keys(tr.output)) {
@@ -581,7 +687,7 @@ async function uploadResults() {
 }
 
 window.addEventListener("beforeunload", event => {
-  if ((completedSubmission && !uploadSaved) || state.phase === "ratingIntro" || state.phase === "ratings") {
+  if ((completedSubmission && !uploadSaved) || ["baselineIntro", "baseline", "mapping", "ratingIntro", "ratingPicture", "ratings", "ratingPreparation"].includes(state.phase)) {
     event.preventDefault(); event.returnValue = "";
   }
 });
