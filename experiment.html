@@ -46,6 +46,9 @@
   .progress { font-size:.85rem; color:#fff; background:rgba(0,0,0,.65); padding:3px 7px;
     border-radius:4px; position:fixed; top:10px; left:14px; }
   .progress:empty { display:none; }
+  #save-status { position:fixed; top:10px; right:14px; max-width:60vw; z-index:2;
+    color:white; background:rgba(0,0,0,.65); border-radius:4px; padding:3px 7px; font-size:.8rem; }
+  #save-status:empty { display:none; }
   .rating-screen { width:100%; height:100%; overflow:auto; }
   .rating-layout { display:flex; align-items:center; justify-content:center;
     min-height:100%; padding:38px 28px 24px; }
@@ -81,6 +84,7 @@
 <body>
 <div class="progress" id="progress"></div>
 <div id="app"></div>
+<div id="save-status" role="status" aria-live="polite" hidden></div>
 
 <script>
 /* =========================================================================
@@ -173,14 +177,14 @@ const UI = {
 };
 // Provisional study text: replace placeholders and increment the version when finalized.
 const CONSENT = {
-  version: "provisional-2026-10-30",
+  version: "provisional-2026-10-30-autosave",
   provisional: true,
   title: "Informace o studii a souhlas s účastí",
   paragraphs: [
     "Pracovní znění informovaného souhlasu – údaje v hranatých závorkách budou doplněny výzkumným týmem.",
     "Zveme vás k účasti ve studii zaměřené na tělesné pocity vyvolané obrázky. Nejprve si vyzkoušíte kreslení do mapy těla a zaznamenáte svůj aktuální tělesný stav. Poté budete sledovat 16 obrázků a zakreslovat své pocity do mapy. Ve druhé části stejné obrázky ohodnotíte podle příjemnosti, aktivace a osobní relevance.",
     "Některé obrázky zobrazují ohrožení, zranění nebo narušení tělesné integrity a mohou být nepříjemné či rozrušující. Účast je dobrovolná. Pokud se rozhodnete nepokračovat, můžete úlohu kdykoli ukončit zavřením stránky, bez udání důvodu a bez postihu.",
-    "Zaznamenáváme zadaný identifikátor, souhlas s účastí, mapy tělesných pocitů, hodnocení obrázků a časové údaje o průběhu úlohy. Cvičná kresba se do výsledků studie neukládá. Odpovědi se odešlou na výzkumný server po dokončení celé úlohy; při dřívějším ukončení se neodešlou.",
+    "Zaznamenáváme zadaný identifikátor, souhlas s účastí, mapy tělesných pocitů, hodnocení obrázků a časové údaje o průběhu úlohy. Cvičná kresba se do výsledků studie neukládá. Dokončené kroky se průběžně ukládají do této karty prohlížeče a odesílají na výzkumný server. Při dřívějším ukončení zůstanou již odeslané odpovědi uloženy jako neúplná účast. Po obnovení stránky v téže kartě lze pokračovat od posledního dokončeného kroku; rozpracovaný krok se opakuje.",
     "Výzkumný tým a kontakt pro dotazy: [doplnit instituci, jméno a e-mail]. Předpokládaná délka účasti: [doplnit]. Informace o správci údajů, přístupu k datům, době uchování a postupu pro odvolání souhlasu či žádost o odstranění již odeslaných údajů: [doplnit]."
   ],
   choice: "Přečetl/a jsem si uvedené informace, rozumím průběhu studie a dobrovolně souhlasím s účastí.",
@@ -220,6 +224,7 @@ const state = {
   results: {},          // variable -> latest output JSON string from InteroMap
   meta: {},             // variable -> { image, persona, pictureOnset, mapOnset, mapDurationMs }
   pictureRatings: [],
+  resumes: [],
   phase: "consent"
 };
 
@@ -268,7 +273,11 @@ window.addEventListener("message", (event) => {
 });
 
 /* ---------------------------- screens ---------------------------- */
-function clear() { app.innerHTML = ""; activeVariable = null; }
+function clear() {
+  app.innerHTML = ""; activeVariable = null;
+  const status = document.getElementById("save-status");
+  if (status) status.hidden = true; // Keep saving feedback off timed stimulus/blank screens.
+}
 
 function screenConsent() {
   clear();
@@ -344,12 +353,14 @@ function screenIntro() {
     if (startBtn.disabled) return;
     startBtn.disabled = true;
     if (CONFIG.askParticipantId) state.participant = (document.getElementById("pid").value || "").trim();
+    checkpoint({ step: "practice" });
     screenPracticeIntro();
   });
 }
 
 function screenPracticeIntro() {
   clear();
+  showSaveStatus();
   state.phase = "practiceIntro";
   prog.textContent = "";
   const card = document.createElement("div");
@@ -372,6 +383,7 @@ function screenPracticeIntro() {
 
 function screenBaselineIntro() {
   clear();
+  showSaveStatus();
   state.phase = "baselineIntro";
   prog.textContent = "";
   const card = document.createElement("div");
@@ -395,6 +407,7 @@ function screenBaselineIntro() {
 
 function screenPictureTaskIntro() {
   clear();
+  showSaveStatus();
   state.phase = "pictureTaskIntro";
   prog.textContent = "";
   const card = document.createElement("div");
@@ -407,6 +420,7 @@ function screenPictureTaskIntro() {
   next.addEventListener("click", () => {
     if (next.disabled) return;
     next.disabled = true;
+    checkpoint({ step: "mapping", index: 0 });
     showBlank(() => runTrial(0));
   });
   card.appendChild(next); app.appendChild(card);
@@ -511,14 +525,19 @@ function showMap(trial, mapType = "picture") {
     advanced = true; next.disabled = true;
     const m = state.meta[trial.variable];
     m.mapDurationMs = Math.round(performance.now() - m.mapOnset);
+    m.completed = true;
     if (isPractice) {
       state.practice = { completed: true, durationMs: m.mapDurationMs };
       delete state.meta[PRACTICE.variable];
       delete state.results[PRACTICE.variable];
+      checkpoint({ step: "baseline" });
       screenBaselineIntro();
     } else if (mapType === "baseline") {
+      checkpoint({ step: "pictureTaskIntro" });
       screenPictureTaskIntro();
     } else {
+      checkpoint(state.idx + 1 < state.order.length
+        ? { step: "mapping", index: state.idx + 1 } : { step: "ratingsIntro" });
       showBlank(() => runTrial(state.idx + 1));
     }
   };
@@ -539,6 +558,7 @@ function showMap(trial, mapType = "picture") {
 /* ---------------------------- picture ratings ---------------------------- */
 function screenRatingsIntro() {
   clear();
+  showSaveStatus();
   state.phase = "ratingIntro";
   prog.textContent = "";
   const card = document.createElement("div");
@@ -548,7 +568,12 @@ function screenRatingsIntro() {
   next.id = "ratings-start";
   next.className = "btn";
   next.textContent = UI.next;
-  next.addEventListener("click", () => { next.disabled = true; showRatingPicture(0); });
+  next.addEventListener("click", () => {
+    if (next.disabled) return;
+    next.disabled = true;
+    checkpoint({ step: "rating", index: 0 });
+    showRatingPicture(0);
+  });
   card.appendChild(next);
   app.appendChild(card);
 }
@@ -702,7 +727,10 @@ function showRating(i, pictureDurationMs) {
       pictureDurationMs,
       ratingDurationMs: Math.round(performance.now() - onset) });
     if (i + 1 >= state.order.length) screenEnd();
-    else showRatingPreparation(i + 1);
+    else {
+      checkpoint({ step: "rating", index: i + 1 });
+      showRatingPreparation(i + 1);
+    }
   });
   card.appendChild(next);
   layout.appendChild(card); screen.appendChild(layout); app.appendChild(screen);
@@ -710,7 +738,7 @@ function showRating(i, pictureDurationMs) {
 }
 
 /* ------------------------------ end / export ------------------------------ */
-function buildDataset() {
+function buildDataset(status = "complete") {
   const mapRecord = (t, position) => {
     const m = state.meta[t.variable] || {};
     let output = null, parsed = null;
@@ -725,7 +753,8 @@ function buildDataset() {
         : blockMetadata(position - 1)),
       variable: t.variable,
       image: t.image,
-      persona: m.persona,
+      persona: m.persona || state.persona,
+      completed: m.completed === true,
       mapDurationMs: m.mapDurationMs ?? null,
       responded: output != null,
       output: parsed              // full InteroMap structure, or null if nothing drawn
@@ -733,7 +762,15 @@ function buildDataset() {
   };
   const trials = state.order.map((ti, pos) => mapRecord(CONFIG.trials[ti], pos + 1));
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
+    status,
+    progress: {
+      baselineCompleted: state.meta[BASELINE.variable]?.completed === true,
+      mapsCompleted: trials.filter(trial => trial.completed).length,
+      ratingsCompleted: state.pictureRatings.length,
+      totalPictures: state.order.length
+    },
+    resumes: state.resumes,
     consent: state.consent,
     practice: state.practice,
     bodyMapBrush: { size: 32, label: "medium", fixed: true },
@@ -766,7 +803,7 @@ function toCSV(dataset) {
   const head = ["participant","timestamp","position","variable","image","persona",
                 "map_duration_ms","picture_valence_1_9","picture_arousal_1_9","picture_relevance_1_9",
                 "rating_duration_ms","rating_position","map_type","block","condition","block_position","position_within_block",
-                "consent_accepted","consent_version","consent_accepted_at","practice_completed","persona_view","stroke_index","valence","intensity",
+                "consent_accepted","consent_version","consent_accepted_at","practice_completed","session_status","map_completed","resume_count","persona_view","stroke_index","valence","intensity",
                 "brush_color","brush_size","n_points","points_json"];
   const esc = v => {
     const s = (v == null) ? "" : String(v);
@@ -782,7 +819,7 @@ function toCSV(dataset) {
                   tr === dataset.baseline ? "baseline" : "picture",
                   tr.block, tr.condition, tr.blockPosition, tr.positionWithinBlock,
                   dataset.consent?.accepted, dataset.consent?.version, dataset.consent?.acceptedAt,
-                  dataset.practice?.completed];
+                  dataset.practice?.completed, dataset.status, tr.completed, dataset.resumes?.length ?? 0];
     if (!tr.output) { rows.push([...base, "", "", "", "", "", "", "0", ""].map(esc).join(",")); continue; }
     let any = false;
     for (const view of Object.keys(tr.output)) {
@@ -806,6 +843,143 @@ function download(name, text, type) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/* Checkpoints contain completed steps only. The in-progress step restarts on refresh. */
+const AUTOSAVE_KEY = "interomap.checkpoint.v1";
+const TASK_SIGNATURE = JSON.stringify({ trials: CONFIG.trials, consent: CONSENT.version,
+  pictureMs: CONFIG.pictureMs, ratingPictureMs: CONFIG.ratingPictureMs });
+let autosaveSession = null;
+let autosaveBusy = false, autosaveRetry = null, localCheckpointSaved = false;
+let autosaveMessage = "";
+
+function showSaveStatus() {
+  const status = document.getElementById("save-status");
+  if (status) { status.hidden = !autosaveSession; status.textContent = autosaveMessage; }
+}
+function setSaveMessage(message) {
+  autosaveMessage = message;
+  const status = document.getElementById("save-status");
+  if (status) status.textContent = message;
+}
+function persistCheckpoint() {
+  try {
+    sessionStorage.setItem(AUTOSAVE_KEY, JSON.stringify(autosaveSession));
+    localCheckpointSaved = true;
+  } catch (error) { localCheckpointSaved = false; }
+}
+function checkpoint(cursor) {
+  if (!state.consent?.accepted || completedSubmission) return;
+  if (!autosaveSession) autosaveSession = { submissionId: crypto.randomUUID(), writeToken: crypto.randomUUID(),
+    signature: TASK_SIGNATURE, revision: 0, acknowledgedRevision: 0 };
+  const completedMeta = Object.fromEntries(Object.entries(state.meta).filter(([, m]) => m.completed));
+  const completedResults = Object.fromEntries(Object.entries(state.results).filter(([key]) => completedMeta[key]));
+  const snapshot = { participant: state.participant, persona: state.persona, consent: state.consent,
+    practice: state.practice, order: state.order, meta: completedMeta, results: completedResults,
+    pictureRatings: state.pictureRatings, resumes: state.resumes };
+  // Freeze each revision so later drawing events cannot mutate a retry or a stored checkpoint.
+  autosaveSession.snapshot = JSON.parse(JSON.stringify(snapshot));
+  autosaveSession.cursor = cursor;
+  autosaveSession.revision++;
+  autosaveSession.dataset = JSON.parse(JSON.stringify({ ...buildDataset("in_progress"), nextStep: cursor }));
+  persistCheckpoint();
+  setSaveMessage(localCheckpointSaved ? "Dokončené kroky jsou v této kartě. Odesíláme zálohu…" : "Odesíláme dokončené kroky…");
+  void uploadCheckpoint();
+}
+async function uploadCheckpoint() {
+  if (!autosaveSession || autosaveBusy || completedSubmission ||
+      autosaveSession.acknowledgedRevision >= autosaveSession.revision) return;
+  clearTimeout(autosaveRetry);
+  autosaveBusy = true;
+  const session = autosaveSession;
+  const revision = session.revision;
+  const body = JSON.stringify({ submissionId: session.submissionId, writeToken: session.writeToken,
+    revision, dataset: session.dataset });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  let saved = false;
+  try {
+    const response = await fetch(new URL("./checkpoints", CONFIG.uploadUrl).href, {
+      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "omit",
+      body, signal: controller.signal
+    });
+    if (!response.ok) throw new Error("Checkpoint rejected");
+    const receipt = await response.json();
+    if (receipt.saved !== true || receipt.submissionId !== session.submissionId ||
+        !Number.isSafeInteger(receipt.revision) || receipt.revision < revision) throw new Error("Invalid checkpoint receipt");
+    saved = true;
+    session.acknowledgedRevision = Math.max(session.acknowledgedRevision, revision);
+    if (!completedSubmission && autosaveSession === session) {
+      persistCheckpoint();
+      setSaveMessage(session.acknowledgedRevision < session.revision
+        ? "Odesíláme poslední dokončené kroky…"
+        : localCheckpointSaved ? "Dokončené kroky jsou uloženy na serveru i v této kartě."
+        : "Dokončené kroky jsou na serveru. Obnovení v této kartě není dostupné.");
+    }
+  } catch (error) {
+    if (!completedSubmission && autosaveSession === session) setSaveMessage(localCheckpointSaved
+      ? "Záloha na server čeká na spojení. Dokončené kroky zůstávají v této kartě."
+      : "Uložení se nezdařilo. Nezavírejte tuto kartu a zkontrolujte připojení.");
+  } finally { clearTimeout(timeout); autosaveBusy = false; }
+  if (!completedSubmission && autosaveSession && autosaveSession.acknowledgedRevision < autosaveSession.revision) {
+    // Coalesce fast steps; a disconnected client retries once per minute, or on reconnect.
+    if (saved) void uploadCheckpoint();
+    else autosaveRetry = setTimeout(uploadCheckpoint, 60000);
+  }
+}
+function restoreCheckpoint() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(AUTOSAVE_KEY));
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!saved || saved.signature !== TASK_SIGNATURE || !uuid.test(saved.submissionId) || !uuid.test(saved.writeToken) ||
+        !Number.isSafeInteger(saved.revision) || saved.revision < 1 || !saved.snapshot?.consent?.accepted ||
+        !saved.dataset || saved.dataset.status !== "in_progress") return false;
+    const order = saved.snapshot.order;
+    if (!Array.isArray(order) || order.length !== CONFIG.trials.length || new Set(order).size !== order.length ||
+        !order.every(index => Number.isInteger(index) && index >= 0 && index < CONFIG.trials.length)) return false;
+    const cursor = saved.cursor;
+    if (!["practice", "baseline", "pictureTaskIntro", "mapping", "ratingsIntro", "rating"].includes(cursor?.step) ||
+        (["mapping", "rating"].includes(cursor.step) &&
+          (!Number.isInteger(cursor.index) || cursor.index < 0 || cursor.index >= order.length))) return false;
+    autosaveSession = saved;
+    localCheckpointSaved = true;
+    return true;
+  } catch (error) { return false; }
+}
+function screenResume() {
+  clear(); state.phase = "resume"; prog.textContent = "";
+  const card = document.createElement("div"); card.className = "card";
+  const heading = document.createElement("h1"); heading.textContent = "Pokračovat v rozpracované úloze?";
+  const detail = document.createElement("p");
+  detail.textContent = `Účastník: ${autosaveSession.snapshot.participant || "bez identifikátoru"}. ` +
+    "Dokončené kroky i pořadí obrázků zůstaly uloženy. Rozpracovaný krok začne znovu od začátku, včetně zobrazení obrázku.";
+  const next = document.createElement("button"); next.id = "resume-continue";
+  next.className = "btn"; next.textContent = "Pokračovat";
+  next.addEventListener("click", () => {
+    if (next.disabled) return; next.disabled = true;
+    const cursor = autosaveSession.cursor;
+    Object.assign(state, JSON.parse(JSON.stringify(autosaveSession.snapshot)));
+    state.resumes.push({ at: new Date().toISOString(), ...cursor });
+    checkpoint(cursor);
+    if (cursor.step === "practice") screenPracticeIntro();
+    else if (cursor.step === "baseline") screenBaselineIntro();
+    else if (cursor.step === "pictureTaskIntro") screenPictureTaskIntro();
+    else if (cursor.step === "mapping") showBlank(() => runTrial(cursor.index));
+    else if (cursor.step === "ratingsIntro") screenRatingsIntro();
+    else showRatingPreparation(cursor.index);
+  });
+  const fresh = document.createElement("button"); fresh.id = "resume-new";
+  fresh.className = "btn secondary"; fresh.textContent = "Začít novou účast";
+  fresh.addEventListener("click", () => {
+    if (fresh.disabled) return; fresh.disabled = true;
+    clearTimeout(autosaveRetry); autosaveSession = null;
+    try { sessionStorage.removeItem(AUTOSAVE_KEY); } catch (error) {}
+    screenConsent();
+  });
+  const note = document.createElement("p");
+  note.textContent = "Nová účast vyžaduje nový souhlas. Dříve odeslané odpovědi zůstanou na serveru označené jako neúplné.";
+  for (const item of [heading, detail, next, fresh, note]) card.appendChild(item);
+  app.appendChild(card);
+}
+
 const PENDING_KEY = "interomap.pending-submission.v1";
 let completedSubmission = null;
 let uploadInProgress = false;
@@ -826,8 +1000,10 @@ function screenEnd() {
   state.phase = "complete";
   prog.textContent = "";
   if (!completedSubmission) {
-    completedSubmission = { submissionId: crypto.randomUUID(), dataset: buildDataset() };
+    completedSubmission = { submissionId: autosaveSession?.submissionId || crypto.randomUUID(),
+      ...(autosaveSession ? { writeToken: autosaveSession.writeToken } : {}), dataset: buildDataset() };
   }
+  clearTimeout(autosaveRetry);
   // Survive a refresh in this tab; never retain successfully uploaded data here.
   try { sessionStorage.setItem(PENDING_KEY, JSON.stringify(completedSubmission)); } catch (e) {}
   const card = document.createElement("div");
@@ -884,7 +1060,7 @@ async function uploadResults() {
           throw new Error("Invalid upload receipt");
         }
         uploadSaved = true;
-        try { sessionStorage.removeItem(PENDING_KEY); } catch (e) {}
+        try { sessionStorage.removeItem(PENDING_KEY); sessionStorage.removeItem(AUTOSAVE_KEY); } catch (e) {}
         status.textContent = UI.uploaded;
         return;
       } catch (error) {
@@ -900,18 +1076,26 @@ async function uploadResults() {
 }
 
 window.addEventListener("beforeunload", event => {
-  if ((completedSubmission && !uploadSaved) || ["baselineIntro", "baseline", "mapping", "ratingIntro", "ratingPicture", "ratings", "ratingPreparation"].includes(state.phase)) {
+  if ((completedSubmission && !uploadSaved) || (autosaveSession && state.phase !== "complete")) {
     event.preventDefault(); event.returnValue = "";
   }
 });
-window.addEventListener("online", () => { if (completedSubmission && !uploadSaved) void uploadResults(); });
+window.addEventListener("online", () => {
+  if (completedSubmission && !uploadSaved) void uploadResults();
+  else if (state.phase !== "resume") void uploadCheckpoint();
+});
 
 try {
   const pending = JSON.parse(sessionStorage.getItem(PENDING_KEY));
   if (pending && typeof pending.submissionId === "string" && pending.dataset &&
       Array.isArray(pending.dataset.trials)) completedSubmission = pending;
 } catch (e) {}
-if (completedSubmission) screenEnd(); else screenConsent();
+function startExperiment() {
+  if (completedSubmission) screenEnd();
+  else if (restoreCheckpoint()) screenResume();
+  else screenConsent();
+}
+startExperiment();
 </script>
 </body>
 </html>

@@ -33,15 +33,14 @@ consecutive; each image appears exactly once in the mapping section and once in
 the rating section. The two positive blocks retain the membership shown above.
 The rating section reuses the mapping order without reshuffling. All 24 block
 orders are possible; random assignment does not guarantee equal counts of each
-order across the sample. Refreshing an unfinished session restarts the task with
-a newly generated order, as unfinished progress is not saved.
+order across the sample. Resuming after refresh preserves the assigned order.
 
 Practice and baseline both remain outside the randomized picture blocks. Existing timing remains:
 6 seconds per loaded picture, 1-second blanks around mapping, self-paced maps and
 ratings, and 5-second preparation intervals between rated pictures. A failed
 picture load offers a retry and cannot silently skip that picture.
 
-JSON schema version 5 records `randomization.blockOrder` and includes `block`,
+JSON schema version 6 records `randomization.blockOrder` and includes `block`,
 `condition`, `blockPosition` (1–4), and `positionWithinBlock` (1–4) on each picture
 map and rating. `position` is the actual presentation position (1–16); `variable`
 and `image` identify the stimulus independently of its position. Both positive
@@ -55,7 +54,7 @@ Stimulus definitions and randomization are in `experiment.html`; the selected
 images are under `stimuli/<block ID>/`. Run the dependency-free regression tests:
 
 ```sh
-node --test tests/experiment-blocks.test.mjs
+node --test tests/experiment-blocks.test.mjs collector/*.test.mjs
 ```
 
 The tests cover all 24 block permutations, all 24 within-block permutations,
@@ -67,6 +66,41 @@ This repository contains the distributed Svelte build. The active brush control
 is in `_app/immutable/entry/_page.svelte.3c0d6b5c.js`; its medium default, available
 options and size-change handler are fixed. Cache versions in `index.html`, the
 app entry and route chunk are updated together when changing this bundle.
+
+## Autosave and refresh recovery
+
+After consent and participant setup, the experiment saves completed steps in the
+current tab's `sessionStorage` and sends checkpoints to the CERIT collector.
+Checkpoints are made after practice, baseline, each picture map ("Hotovo"), each
+picture rating ("Další"), and section starts. Practice drawings remain excluded.
+The latest completed checkpoint is retried after a connection failure and when
+the browser comes online. Autosave does not block the next trial. Saving feedback
+appears on instruction screens, away from timed pictures and blank intervals.
+
+Refreshing in the same browser tab offers to resume with the same participant,
+figure, completed responses, and randomized order. The interrupted step restarts
+from the beginning, including its picture exposure; unfinished strokes/ratings
+are not restored. Every accepted resume is logged in `dataset.resumes` with its
+time and step/index so repeated exposures can be considered during analysis.
+Choosing a new participation requires fresh consent and leaves the previous
+server draft classified as incomplete.
+
+Browser recovery depends on session storage being available. Closing the tab,
+clearing browser data, or changing devices does not provide a resume mechanism.
+Server-acknowledged checkpoints survive tab closure, but an offline checkpoint
+that has not reached the server may be lost when the tab closes. The session is
+retained locally until the final result has a matching server receipt. This
+feature complements infrastructure backups; it does not replace them.
+
+Schema version 6 adds `status` (`in_progress` or `complete`), `progress` counts,
+`resumes`, `nextStep` on checkpoints, and `completed` on individual maps. An empty
+completed map has `completed: true, responded: false`; an unvisited map has
+`completed: false`. CSV adds `session_status`, `map_completed`, and `resume_count`.
+Incomplete datasets contain all planned trials, with unvisited trials marked as
+such; use the completion fields instead of treating these as empty responses.
+
+Collector details, storage locations, and API contract are in
+[collector/AUTOSAVE.md](collector/AUTOSAVE.md).
 
 # Getting started
 

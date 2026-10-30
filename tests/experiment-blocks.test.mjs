@@ -7,7 +7,7 @@ import { webcrypto } from 'node:crypto';
 const root = new URL('../', import.meta.url);
 const html = await readFile(new URL('experiment.html', root), 'utf8');
 const source = html.match(/<script>([\s\S]*?)<\/script>/)[1]
-  .replace('if (completedSubmission) screenEnd(); else screenConsent();', '');
+  .replace('startExperiment();', '');
 const plain = value => JSON.parse(JSON.stringify(value));
 const expected = {
   threat: ['1300', '1525', '2811', '6510'],
@@ -16,9 +16,9 @@ const expected = {
   positive_2: ['2347', '5628', '7325', '8540']
 };
 
-function setup() {
+function setup({ initialStorage = new Map(), failCheckpoints = false, storageFails = false } = {}) {
   const elements = new Map(), listeners = new Map(), timers = new Map();
-  const requests = [];
+  const requests = [], checkpoints = [], storage = new Map(initialStorage);
   let now = 0, timerId = 0;
   function element(tag) {
     const handlers = new Map();
@@ -36,24 +36,27 @@ function setup() {
     };
     return node;
   }
-  for (const id of ['app', 'progress']) { const e = element('div'); e.id = id; }
+  for (const id of ['app', 'progress', 'save-status']) { const e = element('div'); e.id = id; }
   const context = vm.createContext({
     document: { createElement: element, getElementById: id => elements.get(id) },
     window: { addEventListener: (name, handler) => listeners.set(name, handler) },
     location: { href: 'https://pesojka.github.io/interomap/experiment.html' },
-    sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    sessionStorage: { getItem: key => storage.get(key) ?? null, setItem(key, value) { if (storageFails) throw new Error('Quota'); storage.set(key, value); }, removeItem: key => storage.delete(key) },
     crypto: webcrypto, AbortController, URL, performance: { now: () => now },
     requestAnimationFrame: fn => fn(),
     setTimeout: (fn, ms) => { const id = ++timerId; timers.set(id, { fn, due: now + ms }); return id; },
     clearTimeout: id => timers.delete(id),
     fetch: async (url, options) => {
-      const body = JSON.parse(options.body); requests.push(body);
-      return { ok: true, status: 201, json: async () => ({ saved: true, submissionId: body.submissionId }) };
+      const body = JSON.parse(options.body);
+      if (url.endsWith('/checkpoints')) { checkpoints.push(body); if (failCheckpoints) throw new Error('offline'); }
+      else requests.push(body);
+      return { ok: true, status: 201, json: async () => ({ saved: true, submissionId: body.submissionId, ...(body.revision ? { revision: body.revision } : {}) }) };
     }
   });
   vm.runInContext(source + `\n globalThis.api = {
     CONFIG, CONSENT, state, createTrialOrder, buildDataset, toCSV, screenConsent, screenIntro, screenBaselineIntro, runTrial, showRating,
-    saved: () => uploadSaved
+    checkpoint, restoreCheckpoint, screenResume, startExperiment,
+    session: () => autosaveSession, saved: () => uploadSaved
   };`, context);
   const advance = ms => {
     const until = now + ms;
@@ -64,7 +67,7 @@ function setup() {
     }
     now = until;
   };
-  return { api: context.api, elements, listeners, advance, requests };
+  return { api: context.api, elements, listeners, advance, requests, checkpoints, storage };
 }
 
 function checkOrder(order, trials) {
@@ -142,7 +145,7 @@ test('many participant sessions preserve every block and image while varying bot
 });
 
 test('consent, practice, baseline and all 16 maps and ratings export correct responses and metadata', async () => {
-  const { api, elements, listeners, advance, requests } = setup();
+  const { api, elements, listeners, advance, requests, checkpoints, storage } = setup();
   api.state.participant = 'LOCAL_BLOCK_TEST';
   const order = plain(api.state.order), trials = plain(api.CONFIG.trials);
   checkOrder(order, trials);
@@ -166,6 +169,7 @@ test('consent, practice, baseline and all 16 maps and ratings export correct res
   assert.equal(requests.length, 0);
   advance(4567);
   const practiceDone = elements.get('map-next'); practiceDone.fire('click'); practiceDone.fire('click');
+  await settle();
   assert.equal(api.state.phase, 'baselineIntro');
   assert.deepEqual(plain(api.state.practice), { completed: true, durationMs: 4567 });
   assert.equal(api.state.meta.practice, undefined);
@@ -218,6 +222,7 @@ test('consent, practice, baseline and all 16 maps and ratings export correct res
     advance(2345);
     const next = elements.get('map-next'); next.fire('click'); next.fire('click');
     advance(1000);
+    await settle();
     assert.equal(requests.length, 0);
   }
   assert.equal(api.state.phase, 'ratingIntro');
@@ -239,6 +244,7 @@ test('consent, practice, baseline and all 16 maps and ratings export correct res
     advance(3456);
     next.fire('click'); next.fire('click');
     if (i < 15) {
+      await settle();
       assert.equal(requests.length, 0);
       assert.equal(api.state.phase, 'ratingPreparation');
       advance(5000);
@@ -247,8 +253,17 @@ test('consent, practice, baseline and all 16 maps and ratings export correct res
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(api.saved(), true);
   assert.equal(requests.length, 1);
+  assert.ok(checkpoints.length >= 32);
+  assert.ok(checkpoints.every(c => c.dataset.status === 'in_progress' && c.dataset.consent.accepted));
+  assert.ok(checkpoints.every(c => c.dataset.trials.every(t => t.variable !== 'practice')));
+  assert.equal(requests[0].submissionId, checkpoints[0].submissionId);
+  assert.equal(requests[0].writeToken, checkpoints[0].writeToken);
+  assert.equal(storage.size, 0);
   const dataset = requests[0].dataset;
-  assert.equal(dataset.schemaVersion, 5);
+  assert.equal(dataset.status, 'complete');
+  assert.equal(dataset.progress.mapsCompleted, 16);
+  assert.equal(dataset.progress.ratingsCompleted, 16);
+  assert.equal(dataset.schemaVersion, 6);
   assert.equal(dataset.consent.accepted, true);
   assert.equal(dataset.consent.version, api.CONSENT.version);
   assert.equal(dataset.consent.provisional, true);
@@ -335,4 +350,117 @@ test('all rating rows descend from 9 to 1 and relevance anchors match their stor
   collect(elements.get('app'));
   const anchors = all.filter(node => node.className === 'rating-anchors');
   assert.deepEqual(anchors[2].children.map(node => node.textContent), ['9 — Mimořádně', '1 — Vůbec ne']);
+});
+
+const settle = () => new Promise(resolve => setImmediate(resolve));
+function prepareCheckpoint(api) {
+  api.state.participant = 'AUTOSAVE_LOCAL_TEST';
+  api.state.consent = { accepted: true, version: api.CONSENT.version, provisional: true, acceptedAt: new Date().toISOString() };
+  api.state.practice = { completed: true, durationMs: 1000 };
+  api.state.meta.baseline = { completed: true, persona: 'female', mapDurationMs: 2000 };
+}
+
+test('offline checkpoint survives refresh, restores order and completed maps, and repeats only interrupted trial', async () => {
+  const first = setup({ failCheckpoints: true });
+  prepareCheckpoint(first.api);
+  const { api } = first, order = plain(api.state.order);
+  const done = api.CONFIG.trials[order[0]], unfinished = api.CONFIG.trials[order[1]];
+  api.state.meta[done.variable] = { completed: true, persona: 'female', mapDurationMs: 3456 };
+  api.state.results[done.variable] = JSON.stringify({ FemaleFront: { strokes: [] } });
+  api.checkpoint({ step: 'mapping', index: 1 });
+  await settle();
+  const saved = JSON.parse(first.storage.get('interomap.checkpoint.v1'));
+  assert.equal(saved.dataset.status, 'in_progress');
+  assert.equal(saved.dataset.progress.mapsCompleted, 1);
+  assert.equal(saved.dataset.baseline.completed, true);
+  assert.equal(saved.dataset.trials[0].completed, true);
+  assert.equal(saved.dataset.trials[1].completed, false);
+  assert.equal(saved.dataset.trials[1].responded, false);
+  assert.equal(saved.acknowledgedRevision, 0);
+  // Drawing in the next map must not mutate the completed checkpoint.
+  api.state.results[unfinished.variable] = JSON.stringify({ partial: true });
+  api.state.meta[unfinished.variable] = { persona: 'female', mapOnset: 1 };
+  assert.equal(JSON.parse(first.storage.get('interomap.checkpoint.v1')).snapshot.results[unfinished.variable], undefined);
+  first.advance(60000); await settle();
+  assert.equal(first.checkpoints.length, 2);
+  assert.deepEqual(first.checkpoints[0], first.checkpoints[1]);
+  const restored = setup({ initialStorage: first.storage });
+  restored.api.startExperiment();
+  assert.equal(restored.api.state.phase, 'resume');
+  assert.equal(restored.checkpoints.length, 0);
+  restored.elements.get('resume-continue').fire('click');
+  restored.advance(1000); await settle();
+  assert.deepEqual(plain(restored.api.state.order), order);
+  assert.equal(restored.api.state.idx, 1);
+  assert.equal(restored.elements.get('mapping-image').src, unfinished.image);
+  assert.equal(restored.api.state.results[done.variable], api.state.results[done.variable]);
+  assert.equal(restored.api.state.results[unfinished.variable], undefined);
+  assert.equal(restored.api.state.resumes.length, 1);
+  assert.deepEqual(plain(restored.api.state.resumes[0]).step, 'mapping');
+  assert.equal(restored.checkpoints[0].submissionId, first.checkpoints[0].submissionId);
+  assert.equal(restored.checkpoints[0].revision, 2);
+  assert.equal(restored.api.session().acknowledgedRevision, 2);
+});
+
+test('resuming ratings keeps completed ratings and starts the next picture after preparation', async () => {
+  const first = setup(); prepareCheckpoint(first.api);
+  const trial = first.api.CONFIG.trials[first.api.state.order[0]];
+  first.api.state.pictureRatings.push({ variable: trial.variable, position: 1, valence: 9, arousal: 1, relevance: 5 });
+  first.api.checkpoint({ step: 'rating', index: 1 }); await settle();
+  const restored = setup({ initialStorage: first.storage }); restored.api.startExperiment();
+  restored.elements.get('resume-continue').fire('click');
+  assert.equal(restored.api.state.phase, 'ratingPreparation');
+  restored.advance(4999); assert.equal(restored.elements.has('rating-image'), false);
+  restored.advance(1);
+  assert.equal(restored.elements.get('rating-image').src, first.api.CONFIG.trials[first.api.state.order[1]].image);
+  assert.deepEqual(plain(restored.api.state.pictureRatings), plain(first.api.state.pictureRatings));
+  await settle();
+});
+
+test('rapid checkpoints coalesce without mutating an in-flight revision', async () => {
+  const { api, checkpoints, storage } = setup(); prepareCheckpoint(api);
+  api.checkpoint({ step: 'pictureTaskIntro' });
+  api.checkpoint({ step: 'mapping', index: 0 });
+  api.checkpoint({ step: 'mapping', index: 1 });
+  assert.equal(checkpoints.length, 1);
+  assert.equal(checkpoints[0].revision, 1);
+  assert.equal(checkpoints[0].dataset.nextStep.step, 'pictureTaskIntro');
+  await settle();
+  assert.deepEqual(checkpoints.map(item => item.revision), [1, 3]);
+  assert.equal(JSON.parse(storage.get('interomap.checkpoint.v1')).acknowledgedRevision, 3);
+});
+
+test('autosave still reaches the server when browser storage is unavailable', async () => {
+  const { api, checkpoints, storage, elements } = setup({ storageFails: true }); prepareCheckpoint(api);
+  api.checkpoint({ step: 'baseline' }); await settle();
+  assert.equal(checkpoints.length, 1);
+  assert.equal(api.session().acknowledgedRevision, 1);
+  assert.equal(storage.size, 0);
+  assert.match(elements.get('save-status').textContent, /Obnovení v této kartě není dostupné/);
+});
+
+test('starting a new participation clears local checkpoint and requires fresh consent', async () => {
+  const first = setup(); prepareCheckpoint(first.api);
+  first.api.checkpoint({ step: 'baseline' }); await settle();
+  const next = setup({ initialStorage: first.storage }); next.api.startExperiment();
+  next.elements.get('resume-new').fire('click');
+  assert.equal(next.api.state.phase, 'consent');
+  assert.equal(next.api.state.consent, null);
+  assert.equal(next.api.session(), null);
+  assert.equal(next.storage.size, 0);
+  assert.equal(next.elements.get('consent-checkbox').checked, false);
+  assert.equal(next.checkpoints.length, 0);
+});
+
+test('incompatible or corrupt saved orders are never resumed', async () => {
+  const first = setup(); prepareCheckpoint(first.api); first.api.checkpoint({ step: 'baseline' }); await settle();
+  const key = 'interomap.checkpoint.v1', original = JSON.parse(first.storage.get(key));
+  for (const corrupt of [{ ...original, signature: 'old task' },
+    { ...original, snapshot: { ...original.snapshot, order: Array(16).fill(0) } },
+    { ...original, cursor: { step: 'rating', index: 99 } }]) {
+    const next = setup({ initialStorage: new Map([[key, JSON.stringify(corrupt)]]) });
+    next.api.startExperiment();
+    assert.equal(next.api.state.phase, 'consent');
+    assert.equal(next.checkpoints.length, 0);
+  }
 });
