@@ -86,7 +86,7 @@
 /* =========================================================================
    CONFIG  —  edit this block only
    First: consent -> participant setup -> practice map -> current-state baseline
-          map (until "Hotovo") -> blank (blankMs).
+          map (until "Hotovo") -> picture-task instructions -> blank (blankMs).
    Trial cycle:  picture (pictureMs) -> blank (blankMs) -> map (until "Hotovo")
                  -> blank (blankMs) -> next trial's picture ...
    ========================================================================= */
@@ -150,6 +150,10 @@ const UI = {
   baselineInstructions: "Zachyťte svůj současný stav. Není potřeba žádné pocity vyvolávat ani měnit. Pokud si žádné tělesné pocity neuvědomujete, můžete mapu ponechat prázdnou. Až budete hotovi, klikněte na „Hotovo“.",
   baselineStart: "Začít mapování aktuálních pocitů",
   baselineHint: "Zakreslete tělesné pocity, které si uvědomujete právě teď. Pokud žádné nevnímáte, ponechte mapu prázdnou. Poté klikněte na „Hotovo“.",
+  pictureTaskTitle: "Mapování pocitů vyvolaných obrázky",
+  pictureTaskIntro: "Nyní uvidíte obrázek po dobu 6 sekund. Poté se zobrazí prázdná mapa těla. Zakreslete do ní tělesné pocity, které právě vnímáte v reakci na obrázek, a zvolte jejich příjemnost a intenzitu.",
+  pictureTaskInstructions: "Až budete hotovi, klikněte na „Hotovo“. Tento postup se bude opakovat u dalších obrázků.",
+  pictureTaskStart: "Pokračovat",
   waitHint:     "Ještě chvíli prosím…",
   finished:     "Děkujeme, úloha je dokončena.",
   download:     "Stáhnout zálohu dat",
@@ -389,6 +393,25 @@ function screenBaselineIntro() {
   app.appendChild(card);
 }
 
+function screenPictureTaskIntro() {
+  clear();
+  state.phase = "pictureTaskIntro";
+  prog.textContent = "";
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `<h1>${UI.pictureTaskTitle}</h1><p>${UI.pictureTaskIntro}</p><p>${UI.pictureTaskInstructions}</p>`;
+  const next = document.createElement("button");
+  next.id = "picture-task-start";
+  next.className = "btn";
+  next.textContent = UI.pictureTaskStart;
+  next.addEventListener("click", () => {
+    if (next.disabled) return;
+    next.disabled = true;
+    showBlank(() => runTrial(0));
+  });
+  card.appendChild(next); app.appendChild(card);
+}
+
 /* blank inter-stimulus interval, then call next() */
 function showBlank(next) {
   clear();
@@ -493,8 +516,10 @@ function showMap(trial, mapType = "picture") {
       delete state.meta[PRACTICE.variable];
       delete state.results[PRACTICE.variable];
       screenBaselineIntro();
+    } else if (mapType === "baseline") {
+      screenPictureTaskIntro();
     } else {
-      showBlank(() => runTrial(mapType === "baseline" ? 0 : state.idx + 1));
+      showBlank(() => runTrial(state.idx + 1));
     }
   };
 

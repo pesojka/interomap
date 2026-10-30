@@ -2,8 +2,10 @@
 
 Open [the experiment](https://pesojka.github.io/interomap/experiment.html).
 The task starts with informed consent, participant setup, one practice body map,
-and a baseline body map. It then presents 16 picture/body-map trials, followed by
-ratings of the same 16 pictures.
+and a baseline body map. A brief instruction screen then explains how to map the
+bodily feelings evoked by the pictures. It stays visible until the participant
+selects “Pokračovat”; after the usual 1-second blank, the 16 picture/body-map
+trials begin, followed by ratings of the same 16 pictures.
 
 The Czech consent text in `experiment.html` is provisional and contains explicit
 placeholders for the research team/contact, study duration and data-handling

@@ -175,6 +175,16 @@ test('consent, practice, baseline and all 16 maps and ratings export correct res
   assert.match(elements.get('mapframe').src, /variable=baseline&/);
   advance(1234);
   elements.get('map-next').fire('click');
+  assert.equal(api.state.phase, 'pictureTaskIntro');
+  assert.equal(elements.has('mapframe'), false);
+  assert.equal(elements.get('progress').textContent, '');
+  advance(30000); // Instructions remain until the participant chooses to continue.
+  assert.equal(api.state.phase, 'pictureTaskIntro');
+  assert.equal(elements.has('mapping-image'), false);
+  assert.equal(requests.length, 0);
+  const pictureStart = elements.get('picture-task-start');
+  pictureStart.fire('click'); pictureStart.fire('click');
+  assert.equal(elements.has('blank'), true);
   advance(1000);
   for (let i = 0; i < 16; i++) {
     const trial = trials[order[i]], img = elements.get('mapping-image');
