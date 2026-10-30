@@ -1,3 +1,48 @@
+# Picture-block experiment
+
+Open [the experiment](https://pesojka.github.io/interomap/experiment.html).
+The current task presents a baseline body map, then 16 picture/body-map trials,
+then ratings of the same 16 pictures.
+
+| Block ID | Condition | IAPS image IDs |
+| --- | --- | --- |
+| `threat` | Threat | 1300, 1525, 2811, 6510 |
+| `integrity_disruption` | Integrity disruption | 3030, 3213, 3261, 9042 |
+| `positive_1` | Positive | 1463, 1710, 1920, 2071 |
+| `positive_2` | Positive | 2347, 5628, 7325, 8540 |
+
+Each new participant session independently shuffles the four blocks and the four
+images inside each block using Fisher–Yates. All four images in a block remain
+consecutive; each image appears exactly once in the mapping section and once in
+the rating section. The two positive blocks retain the membership shown above.
+The rating section reuses the mapping order without reshuffling. All 24 block
+orders are possible; random assignment does not guarantee equal counts of each
+order across the sample. Refreshing an unfinished session restarts the task with
+a newly generated order, as unfinished progress is not saved.
+
+The baseline stays first and outside the picture blocks. Existing timing remains:
+6 seconds per loaded picture, 1-second blanks around mapping, self-paced maps and
+ratings, and 5-second preparation intervals between rated pictures. A failed
+picture load offers a retry and cannot silently skip that picture.
+
+JSON schema version 4 records `randomization.blockOrder` and includes `block`,
+`condition`, `blockPosition` (1–4), and `positionWithinBlock` (1–4) on each picture
+map and rating. `position` is the actual presentation position (1–16); `variable`
+and `image` identify the stimulus independently of its position. Both positive
+blocks have condition `positive`. Baseline block fields are null. CSV exports
+include `block`, `condition`, `block_position`, and `position_within_block`.
+
+Stimulus definitions and randomization are in `experiment.html`; the selected
+images are under `stimuli/<block ID>/`. Run the dependency-free regression tests:
+
+```sh
+node --test tests/experiment-blocks.test.mjs
+```
+
+The tests cover all 24 block permutations, all 24 within-block permutations,
+1,000 simulated sessions, and the full baseline → 16 maps → 16 ratings sequence,
+including load/retry timing and JSON/CSV order metadata.
+
 # Getting started
 
 ## Associated publication

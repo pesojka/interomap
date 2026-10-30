@@ -94,7 +94,6 @@ const CONFIG = {
   askParticipantId: true,     // show an ID field on the intro screen
   choosePersonaOnce: true,    // participant picks Žena/Muž once, applied to all trials
   persona: "female",          // fallback / default persona if choosePersonaOnce = false
-  shuffle: false,             // randomise trial order per participant
 
   pictureMs: 6000,            // emotional picture duration
   ratingPictureMs: 6000,      // picture-only exposure in the rating section
@@ -102,13 +101,26 @@ const CONFIG = {
   blankMs:   1000,            // blank screen before AND after the map
   minMapSeconds: 0,           // map is self-paced (0 = "Hotovo" active immediately)
 
-  // One entry per trial (this is your N). `variable` MUST be unique, ASCII,
-  // start with a letter, no diacritics. `image` is relative to this file.
+  // Four indivisible blocks; each image appears once per section.
+  // Block order and image order within each block are shuffled once per session.
+  // The rating section repeats that same order. Variables identify images, not positions.
   trials: [
-    { image: "stimuli/img1.jpg", variable: "trial1" },
-    { image: "stimuli/img2.jpg", variable: "trial2" },
-    { image: "stimuli/img3.jpg", variable: "trial3" },
-    { image: "stimuli/img4.jpg", variable: "trial4" }
+    { image: "stimuli/threat/1300.jpg", variable: "threat_1300", block: "threat", condition: "threat" },
+    { image: "stimuli/threat/1525.jpg", variable: "threat_1525", block: "threat", condition: "threat" },
+    { image: "stimuli/threat/2811.jpg", variable: "threat_2811", block: "threat", condition: "threat" },
+    { image: "stimuli/threat/6510.jpg", variable: "threat_6510", block: "threat", condition: "threat" },
+    { image: "stimuli/integrity_disruption/3030.jpg", variable: "integrity_disruption_3030", block: "integrity_disruption", condition: "integrity_disruption" },
+    { image: "stimuli/integrity_disruption/3213.jpg", variable: "integrity_disruption_3213", block: "integrity_disruption", condition: "integrity_disruption" },
+    { image: "stimuli/integrity_disruption/3261.jpg", variable: "integrity_disruption_3261", block: "integrity_disruption", condition: "integrity_disruption" },
+    { image: "stimuli/integrity_disruption/9042.jpg", variable: "integrity_disruption_9042", block: "integrity_disruption", condition: "integrity_disruption" },
+    { image: "stimuli/positive_1/1463.jpg", variable: "positive_1_1463", block: "positive_1", condition: "positive" },
+    { image: "stimuli/positive_1/1710.jpg", variable: "positive_1_1710", block: "positive_1", condition: "positive" },
+    { image: "stimuli/positive_1/1920.jpg", variable: "positive_1_1920", block: "positive_1", condition: "positive" },
+    { image: "stimuli/positive_1/2071.jpg", variable: "positive_1_2071", block: "positive_1", condition: "positive" },
+    { image: "stimuli/positive_2/2347.jpg", variable: "positive_2_2347", block: "positive_2", condition: "positive" },
+    { image: "stimuli/positive_2/5628.jpg", variable: "positive_2_5628", block: "positive_2", condition: "positive" },
+    { image: "stimuli/positive_2/7325.jpg", variable: "positive_2_7325", block: "positive_2", condition: "positive" },
+    { image: "stimuli/positive_2/8540.jpg", variable: "positive_2_8540", block: "positive_2", condition: "positive" }
   ]
 };
 
@@ -170,7 +182,7 @@ const prog = document.getElementById("progress");
 const state = {
   participant: "",
   persona: CONFIG.persona,
-  order: CONFIG.trials.map((_, i) => i),
+  order: createTrialOrder(CONFIG.trials),
   idx: 0,
   results: {},          // variable -> latest output JSON string from InteroMap
   meta: {},             // variable -> { image, persona, pictureOnset, mapOnset, mapDurationMs }
@@ -178,11 +190,36 @@ const state = {
   phase: "intro"
 };
 
-if (CONFIG.shuffle) {
-  for (let i = state.order.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [state.order[i], state.order[j]] = [state.order[j], state.order[i]];
+// Fisher–Yates at two levels: shuffle whole blocks, then images inside each block.
+// Copy arrays so the stimulus definitions and their stable identifiers never change.
+function shuffled(items, random = Math.random) {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
   }
+  return result;
+}
+
+function createTrialOrder(trials, random = Math.random) {
+  const blocks = new Map();
+  trials.forEach((trial, index) => {
+    if (!blocks.has(trial.block)) blocks.set(trial.block, []);
+    blocks.get(trial.block).push(index);
+  });
+  return shuffled([...blocks.values()], random).flatMap(block => shuffled(block, random));
+}
+
+// All positions are one-based. Baseline is outside the randomized picture blocks.
+function blockMetadata(position) {
+  const preceding = state.order.slice(0, position + 1).map(index => CONFIG.trials[index]);
+  const trial = preceding[position];
+  return {
+    block: trial.block,
+    condition: trial.condition,
+    blockPosition: new Set(preceding.map(item => item.block)).size,
+    positionWithinBlock: preceding.filter(item => item.block === trial.block).length
+  };
 }
 
 /* ---- capture InteroMap output (fires after every stroke; keep the latest) ---- */
@@ -279,14 +316,44 @@ function runTrial(i) {
 
 function showPicture(trial) {
   clear();
-  state.meta[trial.variable].pictureOnset = performance.now();
   const wrap = document.createElement("div");
   wrap.id = "picwrap";
   const img = document.createElement("img");
-  img.src = trial.image; img.alt = "";
-  wrap.appendChild(img);
+  img.id = "mapping-image";
+  img.alt = "";
+  img.hidden = true;
+  const imageStatus = document.createElement("p");
+  imageStatus.className = "rating-image-status";
+  imageStatus.setAttribute("role", "status");
+  imageStatus.textContent = UI.imageLoading;
+  const reload = document.createElement("button");
+  reload.id = "mapping-reload";
+  reload.className = "btn secondary";
+  reload.textContent = UI.reloadImage;
+  reload.hidden = true;
+  wrap.appendChild(img); wrap.appendChild(imageStatus); wrap.appendChild(reload);
   app.appendChild(wrap);
-  setTimeout(() => showBlank(() => showMap(trial)), CONFIG.pictureMs);   // 6 s picture, then 1 s blank
+  let started = false;
+  img.addEventListener("load", () => {
+    if (started) return;
+    started = true;
+    imageStatus.hidden = true; reload.hidden = true; img.hidden = false;
+    requestAnimationFrame(() => {
+      state.meta[trial.variable].pictureOnset = performance.now();
+      setTimeout(() => showBlank(() => showMap(trial)), CONFIG.pictureMs);
+    });
+  });
+  img.addEventListener("error", () => {
+    imageStatus.textContent = UI.imageFailed;
+    reload.hidden = false;
+  });
+  reload.addEventListener("click", () => {
+    reload.hidden = true; imageStatus.textContent = UI.imageLoading;
+    const url = new URL(trial.image, location.href);
+    url.searchParams.set("retry", Date.now()); img.src = url.href;
+  });
+  // Begin the six-second exposure only after the selected image has loaded.
+  img.src = trial.image;
 }
 
 function showMap(trial, isBaseline = false) {
@@ -499,6 +566,7 @@ function showRating(i, pictureDurationMs) {
     if (advanced || !ready()) return;
     advanced = true; next.disabled = true;
     state.pictureRatings.push({ position: i + 1, mappingPosition: i + 1,
+      ...blockMetadata(i),
       variable: trial.variable, image: trial.image,
       valence: answers.valence, arousal: answers.arousal, relevance: answers.relevance,
       pictureDurationMs,
@@ -522,6 +590,9 @@ function buildDataset() {
     }
     return {
       position,
+      ...(position === 0
+        ? { block: null, condition: null, blockPosition: null, positionWithinBlock: null }
+        : blockMetadata(position - 1)),
       variable: t.variable,
       image: t.image,
       persona: m.persona,
@@ -532,7 +603,12 @@ function buildDataset() {
   };
   const trials = state.order.map((ti, pos) => mapRecord(CONFIG.trials[ti], pos + 1));
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
+    randomization: {
+      method: "fisher-yates-blocks-and-within-blocks",
+      blockOrder: [...new Set(state.order.map(index => CONFIG.trials[index].block))],
+      ratingOrder: "same-as-mapping"
+    },
     participant: state.participant,
     timestamp: new Date().toISOString(),
     lang: CONFIG.lang,
@@ -556,7 +632,7 @@ function buildDataset() {
 function toCSV(dataset) {
   const head = ["participant","timestamp","position","variable","image","persona",
                 "map_duration_ms","picture_valence_1_9","picture_arousal_1_9","picture_relevance_1_9",
-                "rating_duration_ms","rating_position","map_type","persona_view","stroke_index","valence","intensity",
+                "rating_duration_ms","rating_position","map_type","block","condition","block_position","position_within_block","persona_view","stroke_index","valence","intensity",
                 "brush_color","brush_size","n_points","points_json"];
   const esc = v => {
     const s = (v == null) ? "" : String(v);
@@ -569,7 +645,8 @@ function toCSV(dataset) {
     const base = [dataset.participant, dataset.timestamp, tr.position, tr.variable,
                   tr.image, tr.persona, tr.mapDurationMs, rating.valence, rating.arousal,
                   rating.relevance, rating.ratingDurationMs, rating.position,
-                  tr === dataset.baseline ? "baseline" : "picture"];
+                  tr === dataset.baseline ? "baseline" : "picture",
+                  tr.block, tr.condition, tr.blockPosition, tr.positionWithinBlock];
     if (!tr.output) { rows.push([...base, "", "", "", "", "", "", "0", ""].map(esc).join(",")); continue; }
     let any = false;
     for (const view of Object.keys(tr.output)) {
