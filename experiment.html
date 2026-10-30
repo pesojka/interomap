@@ -21,6 +21,9 @@
     background:var(--panel); border-radius:14px; padding:36px 40px; max-width:640px;
     box-shadow:0 10px 40px rgba(0,0,0,.25); text-align:center; line-height:1.5;
   }
+  .consent-card { max-width:760px; max-height:calc(100vh - 32px); overflow-y:auto; margin:16px; text-align:left; }
+  .consent-choice { display:flex; align-items:flex-start; gap:12px; margin:20px 0; cursor:pointer; }
+  .consent-choice input { flex:0 0 auto; width:1.2rem; height:1.2rem; margin:3px 0 0; }
   .card h1 { font-size:1.4rem; margin:0 0 .6em; }
   .card p { margin:.5em 0; }
   .btn {
@@ -82,7 +85,8 @@
 <script>
 /* =========================================================================
    CONFIG  —  edit this block only
-   First: current-state baseline map (until "Hotovo") -> blank (blankMs).
+   First: consent -> participant setup -> practice map -> current-state baseline
+          map (until "Hotovo") -> blank (blankMs).
    Trial cycle:  picture (pictureMs) -> blank (blankMs) -> map (until "Hotovo")
                  -> blank (blankMs) -> next trial's picture ...
    ========================================================================= */
@@ -127,7 +131,7 @@ const CONFIG = {
 /* UI strings (Czech). Edit freely. */
 const UI = {
   title:        "Mapování tělesných pocitů",
-  intro:        "Nejprve do těla zakreslíte pocity, které si uvědomujete právě teď. Poté uvidíte obrázek a do těla zakreslíte, kde a jak pocit vnímáte. Toto se několikrát zopakuje. Ve druhé části stejné obrázky ohodnotíte na třech škálách.",
+  intro:        "Nejprve si na jedné cvičné mapě vyzkoušíte kreslení. Potom do těla zakreslíte pocity, které si uvědomujete právě teď. Poté uvidíte obrázek a do těla zakreslíte, kde a jak pocit vnímáte. Toto se několikrát zopakuje. Ve druhé části stejné obrázky ohodnotíte na třech škálách.",
   idLabel:      "Zadejte prosím identifikátor účastníka:",
   choosePersona:"Vyberte prosím postavu:",
   female:       "Žena",
@@ -135,6 +139,12 @@ const UI = {
   start:        "Začít",
   continueMap:  "Hotovo",
   mapHint:      "Zakreslete do těla, kde pocit vnímáte. Až budete hotovi, klikněte na „Hotovo“.",
+  practiceTitle: "Vyzkoušejte si kreslení do mapy",
+  practiceIntro: "Tato mapa slouží pouze k nácviku. Nejprve vyberte příjemnost a intenzitu pocitu pomocí škál, potom tažením myši nebo prstu kreslete do přední či zadní části postavy. Zkuste například vyznačit oblast na paži a poté na noze. Nemusíte znázorňovat skutečné pocity.",
+  practiceInstructions: "Vyzkoušejte různé hodnoty příjemnosti a intenzity. Tlačítkem „Zpět“ můžete zrušit poslední tah. Tloušťka štětce je vždy střední. Až budete připraveni, klikněte na „Dokončit nácvik“. Cvičná kresba se neuloží mezi výsledky studie; následující mapa bude prázdná.",
+  practiceStart: "Začít nácvik",
+  practiceDone: "Dokončit nácvik",
+  practiceHint: "Nácvik: vyberte příjemnost a intenzitu, pak kreslete do postavy. Zkuste také „Zpět“. Až budete připraveni, dokončete nácvik.",
   baselineTitle: "Vaše aktuální tělesné pocity",
   baselineIntro: "Než začneme s obrázky, zaměřte pozornost na své tělo. Jaké tělesné pocity si uvědomujete právě teď? Zakreslete je do postavy na místech, kde je vnímáte. U každého pocitu zvolte jeho příjemnost (1 = velmi nepříjemný, 5 = neutrální, 9 = velmi příjemný) a intenzitu (1 = velmi slabá, 9 = velmi silná).",
   baselineInstructions: "Zachyťte svůj současný stav. Není potřeba žádné pocity vyvolávat ani měnit. Pokud si žádné tělesné pocity neuvědomujete, můžete mapu ponechat prázdnou. Až budete hotovi, klikněte na „Hotovo“.",
@@ -157,11 +167,28 @@ const UI = {
   imageFailed:  "Obrázek se nepodařilo načíst. Zkontrolujte připojení a zkuste načtení znovu.",
   reloadImage:  "Načíst obrázek znovu"
 };
-// SAM rows follow the supplied image: 9 on the left, 1 on the right.
+// Provisional study text: replace placeholders and increment the version when finalized.
+const CONSENT = {
+  version: "provisional-2026-10-30",
+  provisional: true,
+  title: "Informace o studii a souhlas s účastí",
+  paragraphs: [
+    "Pracovní znění informovaného souhlasu – údaje v hranatých závorkách budou doplněny výzkumným týmem.",
+    "Zveme vás k účasti ve studii zaměřené na tělesné pocity vyvolané obrázky. Nejprve si vyzkoušíte kreslení do mapy těla a zaznamenáte svůj aktuální tělesný stav. Poté budete sledovat 16 obrázků a zakreslovat své pocity do mapy. Ve druhé části stejné obrázky ohodnotíte podle příjemnosti, aktivace a osobní relevance.",
+    "Některé obrázky zobrazují ohrožení, zranění nebo narušení tělesné integrity a mohou být nepříjemné či rozrušující. Účast je dobrovolná. Pokud se rozhodnete nepokračovat, můžete úlohu kdykoli ukončit zavřením stránky, bez udání důvodu a bez postihu.",
+    "Zaznamenáváme zadaný identifikátor, souhlas s účastí, mapy tělesných pocitů, hodnocení obrázků a časové údaje o průběhu úlohy. Cvičná kresba se do výsledků studie neukládá. Odpovědi se odešlou na výzkumný server po dokončení celé úlohy; při dřívějším ukončení se neodešlou.",
+    "Výzkumný tým a kontakt pro dotazy: [doplnit instituci, jméno a e-mail]. Předpokládaná délka účasti: [doplnit]. Informace o správci údajů, přístupu k datům, době uchování a postupu pro odvolání souhlasu či žádost o odstranění již odeslaných údajů: [doplnit]."
+  ],
+  choice: "Přečetl/a jsem si uvedené informace, rozumím průběhu studie a dobrovolně souhlasím s účastí.",
+  continue: "Souhlasím a chci pokračovat"
+};
+// All rating rows run from 9 on the left to 1 on the right.
+
 const MANIKINS_IMAGE = "images/manikins.png";
 const BASELINE = { variable: "baseline", image: "" };
-if (CONFIG.trials.some(trial => trial.variable === BASELINE.variable)) {
-  throw new Error('The trial variable "baseline" is reserved for the current-state map.');
+const PRACTICE = { variable: "practice", image: "" };
+if (CONFIG.trials.some(trial => [BASELINE.variable, PRACTICE.variable].includes(trial.variable))) {
+  throw new Error('The trial variables "baseline" and "practice" are reserved.');
 }
 const RATING_SCALES = [
   { key: "valence", label: "Příjemnost (valence)", manikin: true,
@@ -181,13 +208,15 @@ const prog = document.getElementById("progress");
 
 const state = {
   participant: "",
+  consent: null,
+  practice: { completed: false, durationMs: null },
   persona: CONFIG.persona,
   order: createTrialOrder(CONFIG.trials),
   idx: 0,
   results: {},          // variable -> latest output JSON string from InteroMap
   meta: {},             // variable -> { image, persona, pictureOnset, mapOnset, mapDurationMs }
   pictureRatings: [],
-  phase: "intro"
+  phase: "consent"
 };
 
 // Fisher–Yates at two levels: shuffle whole blocks, then images inside each block.
@@ -230,14 +259,57 @@ window.addEventListener("message", (event) => {
   if (!frame || event.source !== frame.contentWindow ||
       event.origin !== new URL(CONFIG.toolPath, location.href).origin) return;
   if (!d || d.event !== "interomap_data" || !activeVariable || d.variable !== activeVariable) return;
+  if (activeVariable === PRACTICE.variable) return; // Practice drawings are never research responses.
   state.results[d.variable] = d.output; // cumulative JSON string of all strokes
 });
 
 /* ---------------------------- screens ---------------------------- */
 function clear() { app.innerHTML = ""; activeVariable = null; }
 
-function screenIntro() {
+function screenConsent() {
   clear();
+  state.phase = "consent";
+  prog.textContent = "";
+  const card = document.createElement("div");
+  card.className = "card consent-card";
+  const heading = document.createElement("h1");
+  heading.textContent = CONSENT.title;
+  card.appendChild(heading);
+  for (const text of CONSENT.paragraphs) {
+    const paragraph = document.createElement("p");
+    paragraph.textContent = text;
+    card.appendChild(paragraph);
+  }
+  const label = document.createElement("label");
+  label.className = "consent-choice";
+  const checkbox = document.createElement("input");
+  checkbox.id = "consent-checkbox";
+  checkbox.type = "checkbox";
+  checkbox.checked = false;
+  checkbox.required = true;
+  const description = document.createElement("span");
+  description.textContent = CONSENT.choice;
+  label.appendChild(checkbox); label.appendChild(description);
+  const next = document.createElement("button");
+  next.id = "consent-continue";
+  next.className = "btn";
+  next.textContent = CONSENT.continue;
+  next.disabled = true;
+  checkbox.addEventListener("change", () => { next.disabled = !checkbox.checked; });
+  next.addEventListener("click", () => {
+    if (!checkbox.checked || next.disabled) return;
+    next.disabled = true;
+    state.consent = { accepted: true, version: CONSENT.version, provisional: CONSENT.provisional,
+      acceptedAt: new Date().toISOString() };
+    screenIntro();
+  });
+  card.appendChild(label); card.appendChild(next); app.appendChild(card);
+}
+
+function screenIntro() {
+  if (!state.consent?.accepted) return screenConsent();
+  clear();
+  state.phase = "intro";
   prog.textContent = "";
   const card = document.createElement("div");
   card.className = "card";
@@ -250,6 +322,7 @@ function screenIntro() {
          <p><button class="btn secondary" data-persona="female">${UI.female}</button>
             <button class="btn secondary" data-persona="male">${UI.male}</button></p>` : "");
   const startBtn = document.createElement("button");
+  startBtn.id = "participant-start";
   startBtn.className = "btn"; startBtn.textContent = UI.start;
   startBtn.disabled = CONFIG.choosePersonaOnce;   // enabled once a persona is chosen
   card.appendChild(startBtn);
@@ -264,9 +337,33 @@ function screenIntro() {
     }));
   }
   startBtn.addEventListener("click", () => {
+    if (startBtn.disabled) return;
+    startBtn.disabled = true;
     if (CONFIG.askParticipantId) state.participant = (document.getElementById("pid").value || "").trim();
-    screenBaselineIntro();
+    screenPracticeIntro();
   });
+}
+
+function screenPracticeIntro() {
+  clear();
+  state.phase = "practiceIntro";
+  prog.textContent = "";
+  const card = document.createElement("div");
+  card.className = "card";
+  card.innerHTML = `<h1>${UI.practiceTitle}</h1><p>${UI.practiceIntro}</p><p>${UI.practiceInstructions}</p>`;
+  const next = document.createElement("button");
+  next.id = "practice-start";
+  next.className = "btn";
+  next.textContent = UI.practiceStart;
+  next.addEventListener("click", () => {
+    if (next.disabled) return;
+    next.disabled = true;
+    state.phase = "practice";
+    prog.textContent = "Nácvik";
+    state.meta[PRACTICE.variable] = { image: "", persona: state.persona };
+    showMap(PRACTICE, "practice");
+  });
+  card.appendChild(next); app.appendChild(card);
 }
 
 function screenBaselineIntro() {
@@ -286,7 +383,7 @@ function screenBaselineIntro() {
     state.phase = "baseline";
     prog.textContent = UI.baselineTitle;
     state.meta[BASELINE.variable] = { image: "", persona: state.persona };
-    showMap(BASELINE, true);
+    showMap(BASELINE, "baseline");
   });
   card.appendChild(next);
   app.appendChild(card);
@@ -356,7 +453,9 @@ function showPicture(trial) {
   img.src = trial.image;
 }
 
-function showMap(trial, isBaseline = false) {
+function showMap(trial, mapType = "picture") {
+  const isPractice = mapType === "practice";
+  const hintText = isPractice ? UI.practiceHint : mapType === "baseline" ? UI.baselineHint : UI.mapHint;
   clear();
   const persona = state.meta[trial.variable].persona;
   activeVariable = trial.variable;
@@ -374,10 +473,10 @@ function showMap(trial, isBaseline = false) {
   const bar = document.createElement("div");
   bar.id = "mapbar";
   const hint = document.createElement("span");
-  hint.className = "hint"; hint.textContent = isBaseline ? UI.baselineHint : UI.mapHint;
+  hint.className = "hint"; hint.textContent = hintText;
   const next = document.createElement("button");
   next.id = "map-next";
-  next.className = "btn"; next.textContent = UI.continueMap;   // "Hotovo"
+  next.className = "btn"; next.textContent = isPractice ? UI.practiceDone : UI.continueMap;
   bar.appendChild(hint); bar.appendChild(next);
 
   layout.appendChild(frame); layout.appendChild(bar);
@@ -389,16 +488,23 @@ function showMap(trial, isBaseline = false) {
     advanced = true; next.disabled = true;
     const m = state.meta[trial.variable];
     m.mapDurationMs = Math.round(performance.now() - m.mapOnset);
-    showBlank(() => runTrial(isBaseline ? 0 : state.idx + 1));
+    if (isPractice) {
+      state.practice = { completed: true, durationMs: m.mapDurationMs };
+      delete state.meta[PRACTICE.variable];
+      delete state.results[PRACTICE.variable];
+      screenBaselineIntro();
+    } else {
+      showBlank(() => runTrial(mapType === "baseline" ? 0 : state.idx + 1));
+    }
   };
 
-  if (CONFIG.minMapSeconds > 0) {
+  if (!isPractice && CONFIG.minMapSeconds > 0) {
     next.disabled = true;
     const t0 = performance.now();
     const tick = () => {
       const left = CONFIG.minMapSeconds - (performance.now() - t0) / 1000;
       if (left > 0) { hint.textContent = `${UI.waitHint} (${Math.ceil(left)} s)`; requestAnimationFrame(tick); }
-      else { hint.textContent = isBaseline ? UI.baselineHint : UI.mapHint; next.disabled = false; }
+      else { hint.textContent = hintText; next.disabled = false; }
     };
     requestAnimationFrame(tick);
   }
@@ -526,7 +632,7 @@ function showRating(i, pictureDurationMs) {
     fieldset.setAttribute("aria-describedby", question.id);
     const choices = document.createElement("div");
     choices.className = "rating-choices";
-    const values = Array.from({ length: 9 }, (_, index) => scale.manikin ? 9 - index : index + 1);
+    const values = Array.from({ length: 9 }, (_, index) => 9 - index);
     for (const n of values) {
       const label = document.createElement("label");
       label.className = "rating-choice";
@@ -545,8 +651,7 @@ function showRating(i, pictureDurationMs) {
     }
     const anchors = document.createElement("div");
     anchors.className = "rating-anchors";
-    const anchorTexts = [`1 — ${scale.low}`, `9 — ${scale.high}`];
-    if (scale.manikin) anchorTexts.reverse();
+    const anchorTexts = [`9 — ${scale.high}`, `1 — ${scale.low}`];
     for (const text of anchorTexts) {
       const anchor = document.createElement("span"); anchor.textContent = text; anchors.appendChild(anchor);
     }
@@ -603,7 +708,10 @@ function buildDataset() {
   };
   const trials = state.order.map((ti, pos) => mapRecord(CONFIG.trials[ti], pos + 1));
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
+    consent: state.consent,
+    practice: state.practice,
+    bodyMapBrush: { size: 32, label: "medium", fixed: true },
     randomization: {
       method: "fisher-yates-blocks-and-within-blocks",
       blockOrder: [...new Set(state.order.map(index => CONFIG.trials[index].block))],
@@ -621,7 +729,7 @@ function buildDataset() {
     trials,
     pictureRatings: state.pictureRatings,
     ratingScales: { responseFormat: "sam-valence-arousal-numeric-relevance", min: 1, max: 9,
-      manikinsImage: MANIKINS_IMAGE, manikinDisplayOrder: "9-to-1", relevanceDisplayOrder: "1-to-9",
+      manikinsImage: MANIKINS_IMAGE, manikinDisplayOrder: "9-to-1", relevanceDisplayOrder: "9-to-1",
       pictureMs: CONFIG.ratingPictureMs, preparationMs: CONFIG.ratingPreparationMs,
       intensityConstruct: "arousal", relevanceConstruct: "personal relevance",
       presentationOrder: "same as mapping", scales: RATING_SCALES }
@@ -632,7 +740,8 @@ function buildDataset() {
 function toCSV(dataset) {
   const head = ["participant","timestamp","position","variable","image","persona",
                 "map_duration_ms","picture_valence_1_9","picture_arousal_1_9","picture_relevance_1_9",
-                "rating_duration_ms","rating_position","map_type","block","condition","block_position","position_within_block","persona_view","stroke_index","valence","intensity",
+                "rating_duration_ms","rating_position","map_type","block","condition","block_position","position_within_block",
+                "consent_accepted","consent_version","consent_accepted_at","practice_completed","persona_view","stroke_index","valence","intensity",
                 "brush_color","brush_size","n_points","points_json"];
   const esc = v => {
     const s = (v == null) ? "" : String(v);
@@ -646,7 +755,9 @@ function toCSV(dataset) {
                   tr.image, tr.persona, tr.mapDurationMs, rating.valence, rating.arousal,
                   rating.relevance, rating.ratingDurationMs, rating.position,
                   tr === dataset.baseline ? "baseline" : "picture",
-                  tr.block, tr.condition, tr.blockPosition, tr.positionWithinBlock];
+                  tr.block, tr.condition, tr.blockPosition, tr.positionWithinBlock,
+                  dataset.consent?.accepted, dataset.consent?.version, dataset.consent?.acceptedAt,
+                  dataset.practice?.completed];
     if (!tr.output) { rows.push([...base, "", "", "", "", "", "", "0", ""].map(esc).join(",")); continue; }
     let any = false;
     for (const view of Object.keys(tr.output)) {
@@ -775,7 +886,7 @@ try {
   if (pending && typeof pending.submissionId === "string" && pending.dataset &&
       Array.isArray(pending.dataset.trials)) completedSubmission = pending;
 } catch (e) {}
-if (completedSubmission) screenEnd(); else screenIntro();
+if (completedSubmission) screenEnd(); else screenConsent();
 </script>
 </body>
 </html>

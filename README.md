@@ -1,8 +1,22 @@
 # Picture-block experiment
 
 Open [the experiment](https://pesojka.github.io/interomap/experiment.html).
-The current task presents a baseline body map, then 16 picture/body-map trials,
-then ratings of the same 16 pictures.
+The task starts with informed consent, participant setup, one practice body map,
+and a baseline body map. It then presents 16 picture/body-map trials, followed by
+ratings of the same 16 pictures.
+
+The Czech consent text in `experiment.html` is provisional and contains explicit
+placeholders for the research team/contact, study duration and data-handling
+information. Replace those placeholders and update `CONSENT.version` when the
+text is finalized. The consent checkbox starts unchecked; participants cannot
+continue until they check it. Consent acceptance, text version, provisional status
+and timestamp are saved with the completed submission.
+
+Practice is self-paced and uses a separate empty map before the baseline. Its
+drawings are discarded; only completion and duration are recorded. All maps use
+the existing medium brush size (32 in native image coordinates), with alternate
+sizes removed. All three rating scales, including personal relevance, display
+9 on the left and 1 on the right; stored answers retain their displayed values.
 
 | Block ID | Condition | IAPS image IDs |
 | --- | --- | --- |
@@ -20,17 +34,20 @@ orders are possible; random assignment does not guarantee equal counts of each
 order across the sample. Refreshing an unfinished session restarts the task with
 a newly generated order, as unfinished progress is not saved.
 
-The baseline stays first and outside the picture blocks. Existing timing remains:
+Practice and baseline both remain outside the randomized picture blocks. Existing timing remains:
 6 seconds per loaded picture, 1-second blanks around mapping, self-paced maps and
 ratings, and 5-second preparation intervals between rated pictures. A failed
 picture load offers a retry and cannot silently skip that picture.
 
-JSON schema version 4 records `randomization.blockOrder` and includes `block`,
+JSON schema version 5 records `randomization.blockOrder` and includes `block`,
 `condition`, `blockPosition` (1–4), and `positionWithinBlock` (1–4) on each picture
 map and rating. `position` is the actual presentation position (1–16); `variable`
 and `image` identify the stimulus independently of its position. Both positive
 blocks have condition `positive`. Baseline block fields are null. CSV exports
-include `block`, `condition`, `block_position`, and `position_within_block`.
+include `block`, `condition`, `block_position`, and `position_within_block`, plus
+`consent_accepted`, `consent_version`, `consent_accepted_at`, and `practice_completed`.
+JSON also includes `consent`, `practice` (no drawings), and `bodyMapBrush` metadata.
+Pending completed submissions from older versions retain their original data on retry.
 
 Stimulus definitions and randomization are in `experiment.html`; the selected
 images are under `stimuli/<block ID>/`. Run the dependency-free regression tests:
@@ -40,8 +57,14 @@ node --test tests/experiment-blocks.test.mjs
 ```
 
 The tests cover all 24 block permutations, all 24 within-block permutations,
-1,000 simulated sessions, and the full baseline → 16 maps → 16 ratings sequence,
-including load/retry timing and JSON/CSV order metadata.
+1,000 simulated sessions, and the full consent → practice → baseline → 16 maps →
+16 ratings sequence, including consent gating, practice exclusion, load/retry
+timing, descending rating values and JSON/CSV metadata.
+
+This repository contains the distributed Svelte build. The active brush control
+is in `_app/immutable/entry/_page.svelte.3c0d6b5c.js`; its medium default, available
+options and size-change handler are fixed. Cache versions in `index.html`, the
+app entry and route chunk are updated together when changing this bundle.
 
 # Getting started
 

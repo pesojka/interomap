@@ -7,7 +7,7 @@ import { webcrypto } from 'node:crypto';
 const root = new URL('../', import.meta.url);
 const html = await readFile(new URL('experiment.html', root), 'utf8');
 const source = html.match(/<script>([\s\S]*?)<\/script>/)[1]
-  .replace('if (completedSubmission) screenEnd(); else screenIntro();', '');
+  .replace('if (completedSubmission) screenEnd(); else screenConsent();', '');
 const plain = value => JSON.parse(JSON.stringify(value));
 const expected = {
   threat: ['1300', '1525', '2811', '6510'],
@@ -52,7 +52,7 @@ function setup() {
     }
   });
   vm.runInContext(source + `\n globalThis.api = {
-    CONFIG, state, createTrialOrder, buildDataset, toCSV, screenBaselineIntro, runTrial,
+    CONFIG, CONSENT, state, createTrialOrder, buildDataset, toCSV, screenConsent, screenIntro, screenBaselineIntro, runTrial, showRating,
     saved: () => uploadSaved
   };`, context);
   const advance = ms => {
@@ -141,13 +141,37 @@ test('many participant sessions preserve every block and image while varying bot
   assert.ok(orders.size > 900);
 });
 
-test('baseline then all 16 maps and ratings use the same order and export block metadata', async () => {
+test('consent, practice, baseline and all 16 maps and ratings export correct responses and metadata', async () => {
   const { api, elements, listeners, advance, requests } = setup();
   api.state.participant = 'LOCAL_BLOCK_TEST';
   const order = plain(api.state.order), trials = plain(api.CONFIG.trials);
   checkOrder(order, trials);
-  api.screenBaselineIntro();
+  api.CONFIG.askParticipantId = false;
+  api.CONFIG.choosePersonaOnce = false;
+  api.screenConsent();
+  const checkbox = elements.get('consent-checkbox');
+  checkbox.checked = true; checkbox.fire('change');
+  elements.get('consent-continue').fire('click');
+  assert.equal(api.state.phase, 'intro');
+  elements.get('participant-start').fire('click');
+  assert.equal(api.state.phase, 'practiceIntro');
+  elements.get('practice-start').fire('click');
+  assert.equal(api.state.phase, 'practice');
+  const practiceFrame = elements.get('mapframe');
+  assert.match(practiceFrame.src, /variable=practice&/);
+  listeners.get('message')({ source: practiceFrame.contentWindow, origin: 'https://pesojka.github.io',
+    data: { event: 'interomap_data', variable: 'practice',
+      output: JSON.stringify({ FemaleFront: { strokes: [{ valence: 9, intensity: 9, points: [] }] } }) } });
+  assert.equal(api.state.results.practice, undefined);
+  assert.equal(requests.length, 0);
+  advance(4567);
+  const practiceDone = elements.get('map-next'); practiceDone.fire('click'); practiceDone.fire('click');
+  assert.equal(api.state.phase, 'baselineIntro');
+  assert.deepEqual(plain(api.state.practice), { completed: true, durationMs: 4567 });
+  assert.equal(api.state.meta.practice, undefined);
+  assert.deepEqual(plain(api.state.order), order);
   elements.get('baseline-start').fire('click');
+  assert.notEqual(elements.get('mapframe'), practiceFrame);
   assert.match(elements.get('mapframe').src, /variable=baseline&/);
   advance(1234);
   elements.get('map-next').fire('click');
@@ -199,7 +223,8 @@ test('baseline then all 16 maps and ratings use the same order and export block 
     const next = elements.get('rating-next');
     assert.equal(next.disabled, true);
     for (const key of ['valence', 'arousal', 'relevance']) {
-      const input = elements.get(`rating-${key}-5`); input.checked = true; input.fire('change');
+      const value = key === 'relevance' ? (i === 0 ? 9 : i === 1 ? 1 : 5) : 5;
+      const input = elements.get(`rating-${key}-${value}`); input.checked = true; input.fire('change');
     }
     advance(3456);
     next.fire('click'); next.fire('click');
@@ -213,7 +238,16 @@ test('baseline then all 16 maps and ratings use the same order and export block 
   assert.equal(api.saved(), true);
   assert.equal(requests.length, 1);
   const dataset = requests[0].dataset;
-  assert.equal(dataset.schemaVersion, 4);
+  assert.equal(dataset.schemaVersion, 5);
+  assert.equal(dataset.consent.accepted, true);
+  assert.equal(dataset.consent.version, api.CONSENT.version);
+  assert.equal(dataset.consent.provisional, true);
+  assert.ok(Number.isFinite(Date.parse(dataset.consent.acceptedAt)));
+  assert.deepEqual(dataset.practice, { completed: true, durationMs: 4567 });
+  assert.equal(dataset.trials.some(t => t.variable === 'practice'), false);
+  assert.equal(dataset.pictureRatings.some(t => t.variable === 'practice'), false);
+  assert.equal(dataset.ratingScales.relevanceDisplayOrder, '9-to-1');
+  assert.deepEqual(dataset.bodyMapBrush, { size: 32, label: 'medium', fixed: true });
   assert.deepEqual(plain(api.state.order), order);
   assert.equal(dataset.baseline.variable, 'baseline');
   assert.equal(dataset.baseline.block, null);
@@ -232,6 +266,7 @@ test('baseline then all 16 maps and ratings use the same order and export block 
     }
     assert.equal(map.mapDurationMs, 2345);
     assert.equal(rating.mappingPosition, i + 1);
+    assert.equal(rating.relevance, i === 0 ? 9 : i === 1 ? 1 : 5);
     assert.equal(rating.pictureDurationMs, 6000);
     assert.equal(rating.ratingDurationMs, 3456);
   }
@@ -240,6 +275,9 @@ test('baseline then all 16 maps and ratings use the same order and export block 
   const at = name => rows[0].indexOf(name);
   for (const row of rows) assert.equal(row.length, rows[0].length);
   assert.equal(rows[1][at('block')], '');
+  assert.equal(rows[1][at('consent_accepted')], 'true');
+  assert.equal(rows[1][at('consent_version')], api.CONSENT.version);
+  assert.equal(rows[1][at('practice_completed')], 'true');
   assert.equal(rows[2][at('valence')], '5');
   for (let i = 0; i < 16; i++) {
     assert.equal(rows[i + 2][at('block')], dataset.trials[i].block);
@@ -247,4 +285,44 @@ test('baseline then all 16 maps and ratings use the same order and export block 
     assert.equal(rows[i + 2][at('block_position')], String(Math.floor(i / 4) + 1));
     assert.equal(rows[i + 2][at('position_within_block')], String(i % 4 + 1));
   }
+});
+
+
+test('consent is unchecked initially and cannot be bypassed or continued after unchecking', () => {
+  const { api, elements, requests } = setup();
+  api.CONFIG.askParticipantId = false;
+  api.CONFIG.choosePersonaOnce = false;
+  api.screenIntro(); // A direct attempt to enter setup must still show consent.
+  assert.equal(api.state.phase, 'consent');
+  const checkbox = elements.get('consent-checkbox'), next = elements.get('consent-continue');
+  assert.equal(checkbox.checked, false);
+  assert.equal(checkbox.required, true);
+  assert.equal(next.disabled, true);
+  next.fire('click');
+  assert.equal(api.state.consent, null);
+  assert.equal(api.state.phase, 'consent');
+  checkbox.checked = true; checkbox.fire('change');
+  assert.equal(next.disabled, false);
+  checkbox.checked = false; checkbox.fire('change');
+  next.fire('click');
+  assert.equal(api.state.consent, null);
+  assert.equal(next.disabled, true);
+  checkbox.checked = true; checkbox.fire('change'); next.fire('click');
+  assert.equal(api.state.phase, 'intro');
+  assert.equal(api.state.consent.accepted, true);
+  assert.equal(requests.length, 0);
+});
+
+test('all rating rows descend from 9 to 1 and relevance anchors match their stored values', () => {
+  const { api, elements } = setup();
+  api.showRating(0, 6000);
+  for (const key of ['valence', 'arousal', 'relevance']) {
+    const ids = [...elements.keys()].filter(id => new RegExp(`^rating-${key}-[1-9]$`).test(id));
+    assert.deepEqual(ids.map(id => Number(elements.get(id).value)), [9,8,7,6,5,4,3,2,1]);
+  }
+  const all = [];
+  const collect = node => { all.push(node); node.children.forEach(collect); };
+  collect(elements.get('app'));
+  const anchors = all.filter(node => node.className === 'rating-anchors');
+  assert.deepEqual(anchors[2].children.map(node => node.textContent), ['9 — Mimořádně', '1 — Vůbec ne']);
 });
