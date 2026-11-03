@@ -149,9 +149,10 @@ test('consent, practice, baseline and all 16 maps and ratings export correct res
   api.state.participant = 'LOCAL_BLOCK_TEST';
   const order = plain(api.state.order), trials = plain(api.CONFIG.trials);
   checkOrder(order, trials);
-  api.CONFIG.askParticipantId = false;
   api.CONFIG.choosePersonaOnce = false;
   api.screenConsent();
+  elements.get('consent-name').value = 'Testovací Účastník';
+  elements.get('consent-birth-date').value = '1990-04-15';
   const checkbox = elements.get('consent-checkbox');
   checkbox.checked = true; checkbox.fire('change');
   elements.get('consent-continue').fire('click');
@@ -263,10 +264,13 @@ test('consent, practice, baseline and all 16 maps and ratings export correct res
   assert.equal(dataset.status, 'complete');
   assert.equal(dataset.progress.mapsCompleted, 16);
   assert.equal(dataset.progress.ratingsCompleted, 16);
-  assert.equal(dataset.schemaVersion, 6);
+  assert.equal(dataset.schemaVersion, 7);
   assert.equal(dataset.consent.accepted, true);
+  assert.equal(dataset.participant, 'Testovací Účastník');
+  assert.equal(dataset.consent.fullName, 'Testovací Účastník');
+  assert.equal(dataset.consent.dateOfBirth, '1990-04-15');
   assert.equal(dataset.consent.version, api.CONSENT.version);
-  assert.equal(dataset.consent.provisional, true);
+  assert.equal(dataset.consent.provisional, false);
   assert.ok(Number.isFinite(Date.parse(dataset.consent.acceptedAt)));
   assert.deepEqual(dataset.practice, { completed: true, durationMs: 4567 });
   assert.equal(dataset.trials.some(t => t.variable === 'practice'), false);
@@ -301,6 +305,8 @@ test('consent, practice, baseline and all 16 maps and ratings export correct res
   for (const row of rows) assert.equal(row.length, rows[0].length);
   assert.equal(rows[1][at('block')], '');
   assert.equal(rows[1][at('consent_accepted')], 'true');
+  assert.equal(rows[1][at('consent_full_name')], 'Testovací Účastník');
+  assert.equal(rows[1][at('consent_date_of_birth')], '1990-04-15');
   assert.equal(rows[1][at('consent_version')], api.CONSENT.version);
   assert.equal(rows[1][at('practice_completed')], 'true');
   assert.equal(rows[2][at('valence')], '5');
@@ -315,7 +321,6 @@ test('consent, practice, baseline and all 16 maps and ratings export correct res
 
 test('consent is unchecked initially and cannot be bypassed or continued after unchecking', () => {
   const { api, elements, requests } = setup();
-  api.CONFIG.askParticipantId = false;
   api.CONFIG.choosePersonaOnce = false;
   api.screenIntro(); // A direct attempt to enter setup must still show consent.
   assert.equal(api.state.phase, 'consent');
@@ -326,6 +331,8 @@ test('consent is unchecked initially and cannot be bypassed or continued after u
   next.fire('click');
   assert.equal(api.state.consent, null);
   assert.equal(api.state.phase, 'consent');
+  elements.get('consent-name').value = 'Testovací Účastník';
+  elements.get('consent-birth-date').value = '1990-04-15';
   checkbox.checked = true; checkbox.fire('change');
   assert.equal(next.disabled, false);
   checkbox.checked = false; checkbox.fire('change');
@@ -463,4 +470,38 @@ test('incompatible or corrupt saved orders are never resumed', async () => {
     assert.equal(next.api.state.phase, 'consent');
     assert.equal(next.checkpoints.length, 0);
   }
+});
+
+test('DYSMARK consent requires identity, a valid adult birth date and explicit consent before any upload', () => {
+  const { api, elements, requests, checkpoints } = setup();
+  api.CONFIG.choosePersonaOnce = false;
+  api.screenConsent();
+  const name = elements.get('consent-name'), birth = elements.get('consent-birth-date');
+  const checkbox = elements.get('consent-checkbox'), next = elements.get('consent-continue');
+  assert.equal(name.required, true); assert.equal(birth.required, true);
+  checkbox.checked = true; checkbox.fire('change');
+  assert.equal(next.disabled, true);
+  name.value = '   '; birth.value = '1992-02-29'; name.fire('input');
+  assert.equal(next.disabled, true);
+  name.value = '  Jana Testová  '; name.fire('input');
+  assert.equal(next.disabled, false);
+  for (const invalid of ['', '1990-02-29', '2050-01-01', `${new Date().getFullYear()-10}-01-01`]) {
+    birth.value = invalid; birth.fire('input');
+    assert.equal(next.disabled, true);
+    next.fire('click'); assert.equal(api.state.consent, null);
+  }
+  assert.equal(requests.length, 0); assert.equal(checkpoints.length, 0);
+  birth.value = '1992-02-29'; birth.fire('input');
+  next.fire('click');
+  assert.equal(api.state.participant, 'Jana Testová');
+  assert.equal(api.state.consent.dateOfBirth, '1992-02-29');
+  assert.equal(api.state.consent.fullName, 'Jana Testová');
+  assert.equal(api.state.consent.provisional, false);
+  assert.equal(elements.has('pid'), false);
+  assert.equal(api.CONSENT.content.filter(item => /^\d\. /.test(item.text)).length, 8);
+  assert.ok(!api.CONSENT.content.some(item => /přidělený kód|\[doplnit/.test(item.text)));
+  assert.equal(checkpoints.length, 0);
+  elements.get('participant-start').fire('click');
+  assert.equal(checkpoints[0].dataset.consent.fullName, 'Jana Testová');
+  assert.equal(checkpoints[0].dataset.consent.dateOfBirth, '1992-02-29');
 });

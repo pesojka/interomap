@@ -22,6 +22,15 @@
     box-shadow:0 10px 40px rgba(0,0,0,.25); text-align:center; line-height:1.5;
   }
   .consent-card { max-width:760px; max-height:calc(100vh - 32px); overflow-y:auto; margin:16px; text-align:left; }
+  .consent-card h2 { font-size:1.05rem; margin:1.2em 0 .4em; }
+  .consent-card p { white-space:pre-line; }
+  .consent-fields { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:24px 0 12px; }
+  .consent-fields label { font-weight:600; }
+  .consent-fields input { display:block; width:100%; min-width:0; margin-top:6px;
+    padding:.6em .8em; border:1px solid #94a3b8; border-radius:8px; font:inherit; font-weight:400; }
+  .consent-help { font-size:.9rem; color:#475569; }
+  .consent-error { color:#b91c1c; }
+  @media (max-width:600px) { .consent-fields { grid-template-columns:1fr; } .consent-card { padding:24px; } }
   .consent-choice { display:flex; align-items:flex-start; gap:12px; margin:20px 0; cursor:pointer; }
   .consent-choice input { flex:0 0 auto; width:1.2rem; height:1.2rem; margin:3px 0 0; }
   .card h1 { font-size:1.4rem; margin:0 0 .6em; }
@@ -99,7 +108,6 @@ const CONFIG = {
   lang: "cs",                 // language key baked into the build (cs = Czech)
   uploadUrl: "https://interomap-sojka-ns.dyn.cloud.e-infra.cz/submissions",
 
-  askParticipantId: true,     // show an ID field on the intro screen
   choosePersonaOnce: true,    // participant picks Žena/Muž once, applied to all trials
   persona: "female",          // fallback / default persona if choosePersonaOnce = false
 
@@ -136,7 +144,6 @@ const CONFIG = {
 const UI = {
   title:        "Mapování tělesných pocitů",
   intro:        "Nejprve si na jedné cvičné mapě vyzkoušíte kreslení. Potom do těla zakreslíte pocity, které si uvědomujete právě teď. Poté uvidíte obrázek a do těla zakreslíte, kde a jak pocit vnímáte. Toto se několikrát zopakuje. Ve druhé části stejné obrázky ohodnotíte na třech škálách.",
-  idLabel:      "Zadejte prosím identifikátor účastníka:",
   choosePersona:"Vyberte prosím postavu:",
   female:       "Žena",
   male:         "Muž",
@@ -175,20 +182,119 @@ const UI = {
   imageFailed:  "Obrázek se nepodařilo načíst. Zkontrolujte připojení a zkuste načtení znovu.",
   reloadImage:  "Načíst obrázek znovu"
 };
-// Provisional study text: replace placeholders and increment the version when finalized.
+// Participant-provided DYSMARK consent; increment version for any wording change.
 const CONSENT = {
-  version: "provisional-2026-10-30-autosave",
-  provisional: true,
-  title: "Informace o studii a souhlas s účastí",
-  paragraphs: [
-    "Pracovní znění informovaného souhlasu – údaje v hranatých závorkách budou doplněny výzkumným týmem.",
-    "Zveme vás k účasti ve studii zaměřené na tělesné pocity vyvolané obrázky. Nejprve si vyzkoušíte kreslení do mapy těla a zaznamenáte svůj aktuální tělesný stav. Poté budete sledovat 16 obrázků a zakreslovat své pocity do mapy. Ve druhé části stejné obrázky ohodnotíte podle příjemnosti, aktivace a osobní relevance.",
-    "Některé obrázky zobrazují ohrožení, zranění nebo narušení tělesné integrity a mohou být nepříjemné či rozrušující. Účast je dobrovolná. Pokud se rozhodnete nepokračovat, můžete úlohu kdykoli ukončit zavřením stránky, bez udání důvodu a bez postihu.",
-    "Zaznamenáváme zadaný identifikátor, souhlas s účastí, mapy tělesných pocitů, hodnocení obrázků a časové údaje o průběhu úlohy. Cvičná kresba se do výsledků studie neukládá. Dokončené kroky se průběžně ukládají do této karty prohlížeče a odesílají na výzkumný server. Při dřívějším ukončení zůstanou již odeslané odpovědi uloženy jako neúplná účast. Po obnovení stránky v téže kartě lze pokračovat od posledního dokončeného kroku; rozpracovaný krok se opakuje.",
-    "Výzkumný tým a kontakt pro dotazy: [doplnit instituci, jméno a e-mail]. Předpokládaná délka účasti: [doplnit]. Informace o správci údajů, přístupu k datům, době uchování a postupu pro odvolání souhlasu či žádost o odstranění již odeslaných údajů: [doplnit]."
+  "version": "dysmark-emocni-mapy-2026-11-03-v1",
+  "provisional": false,
+  "title": "Informovaný souhlas s účastí v úloze emoční mapy",
+  "content": [
+    {
+      "tag": "p",
+      "text": "Biomarkery dystonie a jiných poruch hybnosti"
+    },
+    {
+      "tag": "p",
+      "text": "DYSMARK"
+    },
+    {
+      "tag": "p",
+      "text": "Vážená paní, vážený pane,"
+    },
+    {
+      "tag": "p",
+      "text": "zveme Vás k účasti na projektu, ve kterém zkoumáme poruchy hybnosti, jako jsou třes, dystonie, poruchy chůze, slabost, záškuby a křeče. Cílem projektu je hledat ukazatele, které mohou přispět ke zpřesnění diagnostiky hybných obtíží. V této části projektu zkoumáme, jak vnímáte tělesné pocity v klidu a při sledování emočně působících obrázků a kde v těle tyto pocity prožíváte. Úloha má výzkumný účel a sama o sobě neslouží ke stanovení diagnózy ani k léčbě."
+    },
+    {
+      "tag": "h2",
+      "text": "Průběh úlohy"
+    },
+    {
+      "tag": "p",
+      "text": "Úlohu budete plnit na počítači pomocí nástroje InteroMap. Nejprve si na cvičné mapě vyzkoušíte kreslení do obrysu lidského těla. Poté do prázdné mapy zakreslíte tělesné pocity, které si uvědomujete právě v danou chvíli, a označíte jejich příjemnost a intenzitu."
+    },
+    {
+      "tag": "p",
+      "text": "Následně uvidíte 16 obrázků. Každý obrázek se zobrazí na 6 sekund. Poté do nové mapy těla zakreslíte aktuální tělesné pocity vyvolané obrázkem a zvolíte jejich příjemnost a intenzitu na škálách od 1 do 9. Pokud žádné pocity nevnímáte, můžete mapu ponechat prázdnou."
+    },
+    {
+      "tag": "p",
+      "text": "Ve druhé části uvidíte stejné obrázky znovu ve stejném pořadí, opět vždy na 6 sekund. Po každém obrázku ohodnotíte na škálách od 1 do 9 příjemnost vyvolaného pocitu, míru aktivace či rozrušení a osobní relevanci, tedy nakolik obrázek souvisí s Vaším životem nebo zkušenostmi. Neexistují správné ani špatné odpovědi."
+    },
+    {
+      "tag": "p",
+      "text": "Úloha trvá přibližně 20–30 minut. Kreslení do map i následné hodnocení obrázků probíhá Vaším tempem, bez časového limitu."
+    },
+    {
+      "tag": "h2",
+      "text": "Možná nepohoda a dobrovolnost účasti"
+    },
+    {
+      "tag": "p",
+      "text": "Některé obrázky mohou být nepříjemné, rozrušující nebo vyvolat úzkost či odpor. Pokud Vám bude úloha nepříjemná, můžete ji kdykoli ukončit, například zavřením stránky. Účast je dobrovolná a můžete od ní odstoupit bez udání důvodu a bez vlivu na poskytovanou zdravotní péči či Vaše zákonná práva."
+    },
+    {
+      "tag": "h2",
+      "text": "Ukládání a ochrana údajů"
+    },
+    {
+      "tag": "p",
+      "text": "V úloze uvedete své jméno, příjmení a datum narození. Zaznamenáváme tyto údaje, souhlas s účastí, mapy tělesných pocitů, hodnocení obrázků a časové údaje o průběhu úlohy. Dokončené kroky se průběžně ukládají v dané kartě prohlížeče a odesílají na výzkumný server. Již odeslané odpovědi zůstávají uloženy i při předčasném ukončení, označené jako neúplná účast. Zavření stránky samo o sobě dříve uložené údaje neodstraní. S dotazy nebo žádostí o odvolání souhlasu či odstranění údajů se obraťte na řešitelský tým."
+    },
+    {
+      "tag": "p",
+      "text": "Data budou zpracována v kódované podobě pro vědecké hodnocení. Výsledky mohou být publikovány bez uvedení Vaší totožnosti. Výzkumný tým Vám na požádání zodpoví dotazy týkající se studie."
+    },
+    {
+      "tag": "p",
+      "text": "Za řešitelský tým"
+    },
+    {
+      "tag": "p",
+      "text": "doc. MUDr. Tereza Serranová, Ph.D. (neurolog)\nMUDr. Barbora Křupková (neurolog)"
+    },
+    {
+      "tag": "h2",
+      "text": "Prohlášení účastníka"
+    },
+    {
+      "tag": "p",
+      "text": "Přečetl/a jsem si informace o úloze emoční mapy v rámci projektu „Biomarkery dystonie a jiných poruch hybnosti“ (DYSMARK). Měl/a jsem možnost klást otázky a obdržel/a jsem uspokojivé odpovědi. Měl/a jsem dostatek času k rozhodnutí o své účasti."
+    },
+    {
+      "tag": "p",
+      "text": "1. Souhlasím se svou účastí v úloze emoční mapy. Je mi více než 18 let."
+    },
+    {
+      "tag": "p",
+      "text": "2. Informacím, které mi byly podány ústně či písemně, jsem porozuměl/a. Byl/a jsem seznámen/a s průběhem úlohy, jejím výzkumným účelem a s tím, že některé obrázky mohou vyvolat nepříjemné pocity. Vím, že mohu úlohu kdykoli ukončit."
+    },
+    {
+      "tag": "p",
+      "text": "3. Rozumím tomu, že má účast je zcela dobrovolná a že mohu kdykoli z projektu odstoupit, aniž by to ovlivnilo zdravotní péči, která mi bude poskytnuta, či má zákonná práva."
+    },
+    {
+      "tag": "p",
+      "text": "4. Beru na vědomí průběžné ukládání dokončených kroků na výzkumný server. Rozumím tomu, že již odeslané odpovědi zůstávají uloženy i při předčasném ukončení úlohy a že zavření stránky není žádostí o jejich odstranění."
+    },
+    {
+      "tag": "p",
+      "text": "5. Souhlasím s tím, že kódovaná data týkající se mé osoby mohou být uchovávána a elektronicky zpracovávána výzkumnými zdravotnickými pracovníky a jejich zmocněnými zástupci pro účely vědeckého hodnocení s plnou ochranou důvěrnosti dle platných zákonů ČR. Pro výzkumné účely mohou být moje osobní údaje poskytnuty pouze bez identifikačních údajů nebo s mým výslovným souhlasem."
+    },
+    {
+      "tag": "p",
+      "text": "6. Souhlasím s použitím kódovaných dat získaných během studie pro vědecké publikační účely. Porozuměl/a jsem tomu, že mé jméno ani jiné údaje umožňující mou identifikaci se neobjeví ve vědeckých sděleních o této studii."
+    },
+    {
+      "tag": "p",
+      "text": "7. Souhlasím s poskytnutím kódovaných dat získaných během studie na zahraniční pracoviště, která spolupracují s 1. LF UK a VFN v Praze."
+    },
+    {
+      "tag": "p",
+      "text": "8. Poskytnu pověřeným zástupcům výzkumných pracovníků, jejich zmocněncům a etické komisi přístup k mým osobním údajům, aby mohlo být zjištěno, zda tento výzkumný projekt probíhá podle příslušných zákonů, předpisů a protokolu projektu."
+    }
   ],
-  choice: "Přečetl/a jsem si uvedené informace, rozumím průběhu studie a dobrovolně souhlasím s účastí.",
-  continue: "Souhlasím a chci pokračovat"
+  "choice": "Dobrovolně souhlasím s účastí v úloze emoční mapy v rámci projektu DYSMARK.",
+  "continue": "Souhlasím a chci pokračovat"
 };
 // All rating rows run from 9 on the left to 1 on the right.
 
@@ -288,11 +394,36 @@ function screenConsent() {
   const heading = document.createElement("h1");
   heading.textContent = CONSENT.title;
   card.appendChild(heading);
-  for (const text of CONSENT.paragraphs) {
-    const paragraph = document.createElement("p");
-    paragraph.textContent = text;
+  for (const item of CONSENT.content) {
+    const paragraph = document.createElement(item.tag);
+    paragraph.textContent = item.text;
     card.appendChild(paragraph);
   }
+  const fields = document.createElement("div");
+  fields.className = "consent-fields";
+  const nameLabel = document.createElement("label");
+  nameLabel.textContent = "Jméno a příjmení účastníka";
+  const name = document.createElement("input");
+  name.id = "consent-name"; name.type = "text"; name.required = true;
+  name.maxLength = 200; name.autocomplete = "off"; name.value = "";
+  nameLabel.appendChild(name); fields.appendChild(nameLabel);
+  const birthLabel = document.createElement("label");
+  birthLabel.textContent = "Datum narození";
+  const birth = document.createElement("input");
+  birth.id = "consent-birth-date"; birth.type = "date"; birth.required = true;
+  birth.autocomplete = "off"; birth.value = "";
+  const today = new Date();
+  birth.max = `${today.getFullYear() - 18}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  birthLabel.appendChild(birth); fields.appendChild(birthLabel);
+  card.appendChild(fields);
+  const help = document.createElement("p");
+  help.className = "consent-help";
+  help.textContent = "Vyplňte prosím jméno, příjmení a datum narození a zaškrtněte souhlas. Datum a čas udělení souhlasu se zaznamenají automaticky.";
+  card.appendChild(help);
+  const error = document.createElement("p");
+  error.id = "consent-error"; error.className = "consent-error";
+  error.setAttribute("role", "status");
+  error.hidden = true; card.appendChild(error);
   const label = document.createElement("label");
   label.className = "consent-choice";
   const checkbox = document.createElement("input");
@@ -308,12 +439,28 @@ function screenConsent() {
   next.className = "btn";
   next.textContent = CONSENT.continue;
   next.disabled = true;
-  checkbox.addEventListener("change", () => { next.disabled = !checkbox.checked; });
+  const validBirthDate = () => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(birth.value)) return false;
+    const parsed = new Date(birth.value + "T00:00:00Z");
+    return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === birth.value && birth.value <= birth.max;
+  };
+  const refresh = () => {
+    const validName = name.value.trim().length > 0 && name.value.trim().length <= 200;
+    next.disabled = !checkbox.checked || !validName || !validBirthDate();
+    error.hidden = !birth.value || validBirthDate();
+    error.textContent = error.hidden ? "" : "Zadejte platné datum narození. Úloha je určena účastníkům starším 18 let.";
+  };
+  for (const field of [name, birth]) {
+    field.addEventListener("input", refresh); field.addEventListener("change", refresh);
+  }
+  checkbox.addEventListener("change", refresh);
   next.addEventListener("click", () => {
-    if (!checkbox.checked || next.disabled) return;
+    refresh();
+    if (next.disabled) return;
     next.disabled = true;
+    state.participant = name.value.trim();
     state.consent = { accepted: true, version: CONSENT.version, provisional: CONSENT.provisional,
-      acceptedAt: new Date().toISOString() };
+      fullName: state.participant, dateOfBirth: birth.value, acceptedAt: new Date().toISOString() };
     screenIntro();
   });
   card.appendChild(label); card.appendChild(next); app.appendChild(card);
@@ -328,8 +475,6 @@ function screenIntro() {
   card.className = "card";
   card.innerHTML =
     `<h1>${UI.title}</h1><p>${UI.intro}</p>` +
-    (CONFIG.askParticipantId
-      ? `<p>${UI.idLabel}</p><p><input type="text" id="pid" maxlength="200" autocomplete="off"></p>` : "") +
     (CONFIG.choosePersonaOnce
       ? `<p>${UI.choosePersona}</p>
          <p><button class="btn secondary" data-persona="female">${UI.female}</button>
@@ -352,7 +497,6 @@ function screenIntro() {
   startBtn.addEventListener("click", () => {
     if (startBtn.disabled) return;
     startBtn.disabled = true;
-    if (CONFIG.askParticipantId) state.participant = (document.getElementById("pid").value || "").trim();
     checkpoint({ step: "practice" });
     screenPracticeIntro();
   });
@@ -762,7 +906,7 @@ function buildDataset(status = "complete") {
   };
   const trials = state.order.map((ti, pos) => mapRecord(CONFIG.trials[ti], pos + 1));
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     status,
     progress: {
       baselineCompleted: state.meta[BASELINE.variable]?.completed === true,
@@ -803,7 +947,7 @@ function toCSV(dataset) {
   const head = ["participant","timestamp","position","variable","image","persona",
                 "map_duration_ms","picture_valence_1_9","picture_arousal_1_9","picture_relevance_1_9",
                 "rating_duration_ms","rating_position","map_type","block","condition","block_position","position_within_block",
-                "consent_accepted","consent_version","consent_accepted_at","practice_completed","session_status","map_completed","resume_count","persona_view","stroke_index","valence","intensity",
+                "consent_accepted","consent_version","consent_accepted_at","consent_full_name","consent_date_of_birth","practice_completed","session_status","map_completed","resume_count","persona_view","stroke_index","valence","intensity",
                 "brush_color","brush_size","n_points","points_json"];
   const esc = v => {
     const s = (v == null) ? "" : String(v);
@@ -819,6 +963,7 @@ function toCSV(dataset) {
                   tr === dataset.baseline ? "baseline" : "picture",
                   tr.block, tr.condition, tr.blockPosition, tr.positionWithinBlock,
                   dataset.consent?.accepted, dataset.consent?.version, dataset.consent?.acceptedAt,
+                  dataset.consent?.fullName, dataset.consent?.dateOfBirth,
                   dataset.practice?.completed, dataset.status, tr.completed, dataset.resumes?.length ?? 0];
     if (!tr.output) { rows.push([...base, "", "", "", "", "", "", "0", ""].map(esc).join(",")); continue; }
     let any = false;
@@ -949,7 +1094,7 @@ function screenResume() {
   const card = document.createElement("div"); card.className = "card";
   const heading = document.createElement("h1"); heading.textContent = "Pokračovat v rozpracované úloze?";
   const detail = document.createElement("p");
-  detail.textContent = `Účastník: ${autosaveSession.snapshot.participant || "bez identifikátoru"}. ` +
+  detail.textContent = `Účastník: ${autosaveSession.snapshot.participant || "neuveden"}. ` +
     "Dokončené kroky i pořadí obrázků zůstaly uloženy. Rozpracovaný krok začne znovu od začátku, včetně zobrazení obrázku.";
   const next = document.createElement("button"); next.id = "resume-continue";
   next.className = "btn"; next.textContent = "Pokračovat";

@@ -7,12 +7,20 @@ bodily feelings evoked by the pictures. It stays visible until the participant
 selects “Pokračovat”; after the usual 1-second blank, the 16 picture/body-map
 trials begin, followed by ratings of the same 16 pictures.
 
-The Czech consent text in `experiment.html` is provisional and contains explicit
-placeholders for the research team/contact, study duration and data-handling
-information. Replace those placeholders and update `CONSENT.version` when the
-text is finalized. The consent checkbox starts unchecked; participants cannot
-continue until they check it. Consent acceptance, text version, provisional status
-and timestamp are saved with the completed submission.
+The Czech DYSMARK consent supplied on 2026-11-03 replaces the provisional text.
+It includes the study information and all eight participant declarations, with a
+required unchecked consent box. Full name and date of birth are required; the
+participant-code field has been removed at the researcher's request. The data
+paragraph reflects collection of name and date of birth. The task records the
+consent wording version and acceptance time automatically. Version changes
+require fresh consent rather than resuming an older unfinished consent session.
+
+Schema 7 stores the participant's full name in `participant` and in
+`consent.fullName`, plus `consent.dateOfBirth` as YYYY-MM-DD. Drafts, final JSON,
+and CSV include these fields; CSV adds `consent_full_name` and
+`consent_date_of_birth`. Historical completed submissions retain their original
+schema and identifiers on retry. Date inputs reject invalid dates and participants
+under 18; continuing also requires a nonblank name and the checked consent box.
 
 Practice is self-paced and uses a separate empty map before the baseline. Its
 drawings are discarded; only completion and duration are recorded. All maps use
@@ -40,7 +48,7 @@ Practice and baseline both remain outside the randomized picture blocks. Existin
 ratings, and 5-second preparation intervals between rated pictures. A failed
 picture load offers a retry and cannot silently skip that picture.
 
-JSON schema version 6 records `randomization.blockOrder` and includes `block`,
+JSON schema version 7 records `randomization.blockOrder` and includes `block`,
 `condition`, `blockPosition` (1–4), and `positionWithinBlock` (1–4) on each picture
 map and rating. `position` is the actual presentation position (1–16); `variable`
 and `image` identify the stimulus independently of its position. Both positive

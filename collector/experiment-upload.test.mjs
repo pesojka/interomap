@@ -209,7 +209,7 @@ test('six-second exposure, required SAM ratings, five-second preparation and com
   await finished(api);
   assert.equal(requests, 1);
   assert.equal(validate(sent), true); // Compatible with the already deployed collector.
-  assert.equal(sent.dataset.schemaVersion, 6);
+  assert.equal(sent.dataset.schemaVersion, 7);
   assert.equal(sent.dataset.pictureRatings.length, 16);
   assert.equal(sent.dataset.trials.length, 16);
   sent.dataset.pictureRatings.forEach((r, i) => {
